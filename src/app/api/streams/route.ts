@@ -28,6 +28,7 @@ type TwitchStream = {
   viewer_count: number;
   thumbnail_url: string;
   type: string;
+  started_at: string;
 };
 
 type TwitchStreamsResponse = {
@@ -202,7 +203,8 @@ export async function GET() {
       thumbnailUrl: stream.thumbnail_url.replace('{width}', '800').replace('{height}', '450'),
       profileImageUrl: profileImages[stream.user_id] || '',
       url: `https://twitch.tv/${stream.user_login}`,
-      isLive: stream.type === 'live'
+      isLive: stream.type === 'live',
+      startedAt: stream.started_at
     }));
 
     formattedStreams.sort((a, b) => b.viewerCount - a.viewerCount);
@@ -215,17 +217,26 @@ export async function GET() {
 
     const totalViewers = formattedStreams.reduce((acc, s) => acc + s.viewerCount, 0);
 
-    return NextResponse.json({
-      generatedAt: new Date().toISOString(),
+    const generatedAt = new Date().toISOString();
+    const response = NextResponse.json({
+      generatedAt,
       stats: {
         liveStreams: formattedStreams.length,
-        totalViewers
+        totalViewers,
       },
-      streams: formattedStreams
+      streams: formattedStreams,
     });
+
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
+    response.headers.set('CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
+    response.headers.set('Vercel-CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
+
+    return response;
 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const response = NextResponse.json({ error: message }, { status: 500 });
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 }

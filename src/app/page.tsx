@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { RefreshCw, Users, Radio, Info, ChevronDown, ChevronUp } from "lucide-react";
+import Link from "next/link";
+import { RefreshCw, Users, Radio, Info, ChevronDown, ChevronUp, Play, Pause, Share2, Flame, Clock } from "lucide-react";
 
 interface Stream {
   platform: string;
@@ -14,6 +15,13 @@ interface Stream {
   profileImageUrl: string;
   url: string;
   isLive: boolean;
+  startedAt: string;
+}
+
+interface ToastMessage {
+  id: number;
+  message: string;
+  type: 'info' | 'success';
 }
 
 interface Stats {
@@ -33,42 +41,146 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showHowTo, setShowHowTo] = useState(false);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(60);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [imageBuster, setImageBuster] = useState(() => Date.now());
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const addToast = (message: string, type: 'info' | 'success' = 'info') => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 5000);
+  };
+
+  const handleShare = () => {
+    navigator.clipboard.writeText(window.location.href);
+    addToast("Link copied to clipboard!", "success");
+  };
+
+  const lastGoodDataRef = useRef<StreamsResponse | null>(null);
+  const fetchStreamsRef = useRef<(isRefresh?: boolean) => Promise<void>>(async () => {});
+  const howToRef = useRef<HTMLDivElement | null>(null);
+
+  const formatTimeAgo = (iso?: string) => {
+    if (!iso) return "";
+    const ms = now - new Date(iso).getTime();
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+  };
+
+  const formatUptime = (startedAt?: string) => {
+    if (!startedAt) return "";
+    const ms = now - new Date(startedAt).getTime();
+    const minutes = Math.max(0, Math.floor(ms / 60000));
+    const hours = Math.floor(minutes / 60);
+    const remainingMins = minutes % 60;
+    
+    if (hours > 0) return `${hours}h ${remainingMins}m`;
+    return `${minutes}m`;
+  };
+
+  const formatCompactViewers = (count: number) => {
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
+    return count.toLocaleString();
+  };
+
+  const cacheBuster = String(imageBuster);
+  const withCacheBuster = (url: string) => {
+    if (!cacheBuster) return url;
+    return url.includes("?") ? `${url}&t=${cacheBuster}` : `${url}?t=${cacheBuster}`;
+  };
+
+  const podiumRankByChannel = useMemo(() => {
+    const rankMap = new Map<string, 1 | 2 | 3>();
+    if (!data?.streams || data.streams.length === 0) return rankMap;
+
+    const top = [...data.streams].sort((a, b) => b.viewerCount - a.viewerCount).slice(0, 3);
+    top.forEach((s, idx) => {
+      const rank = (idx + 1) as 1 | 2 | 3;
+      rankMap.set(s.channel.toLowerCase(), rank);
+    });
+
+    return rankMap;
+  }, [data?.streams]);
 
   const fetchStreams = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
+    setErrorMessage(null);
     try {
       const res = await fetch("/api/streams", {
-        cache: "no-store", // Force Next.js to re-fetch on client
+        cache: "no-store",
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to fetch");
-      
-      setData(json);
 
-      // Update document title dynamically
-      if (json.stats) {
-        const viewers = json.stats.totalViewers >= 1000 
-          ? (json.stats.totalViewers / 1000).toFixed(1) + 'K' 
-          : json.stats.totalViewers.toLocaleString();
-          
-        document.title = `${json.stats.liveStreams} Live Keizaal RP Streams - ${viewers} Viewers | Keizaal Live`;
+      const nextData = json as StreamsResponse;
+      
+      // Detect new streamers if this is a refresh
+      if (lastGoodDataRef.current && lastGoodDataRef.current.streams.length > 0) {
+        const oldChannels = new Set(lastGoodDataRef.current.streams.map(s => s.channel));
+        const newStreams = nextData.streams.filter(s => !oldChannels.has(s.channel));
+        
+        newStreams.forEach(s => {
+          addToast(`🎥 ${s.displayName} just went live playing Keizaal RP!`, 'info');
+        });
+      }
+
+      setData(nextData);
+      lastGoodDataRef.current = nextData;
+      setSecondsUntilRefresh(60);
+      setImageBuster(Date.now());
+
+      if (nextData.stats) {
+        const viewers = formatCompactViewers(nextData.stats.totalViewers);
+        document.title = `${nextData.stats.liveStreams} Live Keizaal RP Streams - ${viewers} Viewers | Keizaal Live`;
       }
     } catch (err) {
-      setData({
-        generatedAt: new Date().toISOString(),
-        stats: { liveStreams: 0, totalViewers: 0 },
-        streams: [],
-        error: err instanceof Error ? err.message : "Failed to fetch streams"
-      });
+      const message = err instanceof Error ? err.message : "Failed to fetch streams";
+      setErrorMessage(message);
+
+      if (!lastGoodDataRef.current) {
+        setData({
+          generatedAt: new Date().toISOString(),
+          stats: { liveStreams: 0, totalViewers: 0 },
+          streams: [],
+          error: message,
+        });
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
+  fetchStreamsRef.current = fetchStreams;
+
   useEffect(() => {
-    fetchStreams();
+    void fetchStreamsRef.current();
   }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setNow(Date.now());
+      setSecondsUntilRefresh((prev) => {
+        if (!autoRefreshEnabled) return prev;
+        if (prev <= 1) {
+          void fetchStreamsRef.current(true);
+          return 60;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, [autoRefreshEnabled]);
 
   return (
     <main className="min-h-screen bg-keizaal-bg text-zinc-100 flex flex-col font-sans">
@@ -87,6 +199,12 @@ export default function Home() {
             </h1>
           </div>
           <nav className="flex items-center gap-4 sm:gap-6 text-sm font-medium">
+            <Link href="/" className="text-white transition-colors hidden sm:inline-block">
+              Live Streams
+            </Link>
+            <Link href="/clips" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+              Top Clips
+            </Link>
             <a
               href="https://keizaal.com"
               target="_blank"
@@ -103,14 +221,29 @@ export default function Home() {
             >
               Official Discord
             </a>
+            <button
+              onClick={handleShare}
+              className="text-zinc-400 hover:text-white transition-colors flex items-center"
+              title="Share"
+              aria-label="Share"
+              type="button"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
           </nav>
         </div>
       </header>
 
-      {/* Sticky Stats Bar */}
       <div className="sticky top-16 z-40 bg-keizaal-bg/95 backdrop-blur-md border-b border-zinc-800/50 py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-keizaal-card p-4 rounded-xl border border-zinc-800/50 shadow-lg">
+          <div className="flex flex-col gap-3">
+            {errorMessage ? (
+              <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/50 px-4 py-3 text-sm text-zinc-300">
+                Having trouble reaching Twitch right now. Try again in a moment.
+              </div>
+            ) : null}
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-keizaal-card p-4 rounded-xl border border-zinc-800/50 shadow-lg">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-3">
                 <Radio className="w-7 h-7 text-red-500" />
@@ -129,21 +262,44 @@ export default function Home() {
               </div>
             </div>
             
-            <div className="flex items-center gap-4 justify-between sm:justify-end">
-              {data?.generatedAt && (
-                <span className="text-xs text-zinc-500 hidden sm:inline-block">
-                  Updated {new Date(data.generatedAt).toLocaleTimeString()}
+            <div className="flex items-center gap-3 justify-between sm:justify-end flex-wrap">
+              {data?.generatedAt && !autoRefreshEnabled ? (
+                <span className="text-xs text-zinc-500">
+                  Last checked {formatTimeAgo(data.generatedAt)}
                 </span>
-              )}
-              <button
-                onClick={() => fetchStreams(true)}
-                disabled={loading || refreshing}
-                className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-keizaal-accent" : ""}`} />
-                Refresh
-              </button>
+              ) : null}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAutoRefreshEnabled((v) => !v);
+                    if (!autoRefreshEnabled) setSecondsUntilRefresh(60);
+                  }}
+                  title={autoRefreshEnabled ? "Pause auto-refresh" : "Enable auto-refresh"}
+                  className="flex items-center justify-center w-9 h-9 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                >
+                  {autoRefreshEnabled ? <Pause className="w-4 h-4" fill="currentColor" /> : <Play className="w-4 h-4" fill="currentColor" />}
+                </button>
+
+                <button
+                  onClick={() => fetchStreams(true)}
+                  disabled={loading || refreshing}
+                  className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[170px] justify-center"
+                >
+                  <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-keizaal-accent" : ""}`} />
+                  Refresh{" "}
+                  <span
+                    className={`inline-block w-[52px] text-right tabular-nums ${
+                      autoRefreshEnabled && !loading && !refreshing ? "opacity-100" : "opacity-0"
+                    }`}
+                  >
+                    ({String(secondsUntilRefresh).padStart(2, "0")}s)
+                  </span>
+                </button>
+              </div>
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -155,38 +311,99 @@ export default function Home() {
           </div>
         ) : data?.streams && data.streams.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-            {data.streams.map((stream) => (
+            {data.streams.map((stream) => {
+              const podiumRank = podiumRankByChannel.get(stream.channel.toLowerCase()) || 0;
+              const isGold = podiumRank === 1;
+              const isSilver = podiumRank === 2;
+              const isBronze = podiumRank === 3;
+
+              const cardClassName = `group flex flex-col bg-keizaal-card rounded-xl overflow-hidden border transition-all hover:-translate-y-1 hover:shadow-2xl ${
+                isGold
+                  ? "border-amber-500/50 hover:border-amber-500 shadow-amber-500/10"
+                  : isSilver
+                    ? "border-zinc-200/50 hover:border-zinc-200 shadow-zinc-200/10"
+                    : isBronze
+                      ? "border-[#cd7f32]/50 hover:border-[#cd7f32] shadow-[#cd7f32]/10"
+                      : "border-zinc-800/50 hover:border-zinc-700 hover:shadow-keizaal-accent/10"
+              }`;
+
+              const avatarClassName = `rounded-full ring-2 ${
+                isGold
+                  ? "ring-amber-500"
+                  : isSilver
+                    ? "ring-zinc-200"
+                    : isBronze
+                      ? "ring-[#cd7f32]"
+                      : "ring-zinc-800"
+              }`;
+
+              const avatarPlaceholderClassName = `w-10 h-10 rounded-full ${
+                isGold
+                  ? "bg-amber-500/20 ring-2 ring-amber-500"
+                  : isSilver
+                    ? "bg-zinc-200/10 ring-2 ring-zinc-200"
+                    : isBronze
+                      ? "bg-[#cd7f32]/10 ring-2 ring-[#cd7f32]"
+                      : "bg-zinc-800"
+              }`;
+
+              return (
               <a
                 key={stream.channel}
                 href={stream.url}
                 target="_blank"
                 rel="noreferrer"
-                className="group flex flex-col bg-keizaal-card rounded-xl overflow-hidden border border-zinc-800/50 hover:border-zinc-700 transition-all hover:-translate-y-1 hover:shadow-2xl hover:shadow-keizaal-accent/10"
+                className={cardClassName}
               >
                 <div className="relative aspect-video bg-zinc-900">
                   {stream.thumbnailUrl ? (
                     <Image
-                      src={stream.thumbnailUrl}
+                      src={withCacheBuster(stream.thumbnailUrl)}
                       alt={stream.title}
                       fill
                       className="object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                   ) : null}
-                  <div className="absolute top-3 left-3 flex items-center gap-2">
-                    <span className="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
-                      Live
-                    </span>
+                  <div className="absolute top-3 left-3 flex flex-col gap-2 items-start">
+                    <div className="flex items-center gap-2">
+                      <span className="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+                        Live
+                      </span>
+                    </div>
+                    {isGold && (
+                      <span className="bg-amber-500 text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
+                        <Flame className="w-3 h-3" />
+                        Top Stream
+                      </span>
+                    )}
+                    {isSilver && (
+                      <span className="bg-zinc-200 text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
+                        <Flame className="w-3 h-3" />
+                        Top Stream
+                      </span>
+                    )}
+                    {isBronze && (
+                      <span className="bg-[#cd7f32] text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
+                        <Flame className="w-3 h-3" />
+                        Top Stream
+                      </span>
+                    )}
+                  </div>
+                  <div className="absolute bottom-3 left-3">
                     <span className="bg-black/60 backdrop-blur-md text-white text-xs font-semibold px-2 py-1 rounded shadow-md flex items-center gap-1.5">
                       <Users className="w-3.5 h-3.5" />
                       {stream.viewerCount.toLocaleString()}
                     </span>
                   </div>
-                  {stream.platform === "twitch" && (
-                    <div className="absolute top-3 right-3 bg-[#9146ff] text-white text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md">
-                      Twitch
+                  {stream.startedAt ? (
+                    <div className="absolute bottom-3 right-3">
+                      <span className="bg-black/60 backdrop-blur-md text-white text-xs font-semibold px-2 py-1 rounded shadow-md flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5" />
+                        {formatUptime(stream.startedAt)}
+                      </span>
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 
                 <div className="p-4 flex gap-3">
@@ -197,23 +414,25 @@ export default function Home() {
                         alt={stream.displayName}
                         width={40}
                         height={40}
-                        className="rounded-full ring-2 ring-zinc-800"
+                        className={avatarClassName}
                       />
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-zinc-800"></div>
+                      <div className={avatarPlaceholderClassName}></div>
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h2 className="font-bold text-white truncate group-hover:text-keizaal-accent transition-colors" title={stream.displayName}>
-                      {stream.displayName}
-                    </h2>
+                    <div className="flex items-start justify-between gap-2">
+                      <h2 className="font-bold text-white truncate group-hover:text-keizaal-accent transition-colors" title={stream.displayName}>
+                        {stream.displayName}
+                      </h2>
+                    </div>
                     <p className="text-sm text-zinc-400 line-clamp-2 mt-0.5 leading-snug" title={stream.title}>
                       {stream.title}
                     </p>
                   </div>
                 </div>
               </a>
-            ))}
+            )})}
           </div>
         ) : (
           <div className="flex-grow flex flex-col items-center justify-center py-20 text-center">
@@ -221,17 +440,45 @@ export default function Home() {
               <Radio className="w-8 h-8 text-zinc-500" />
             </div>
             <h2 className="text-xl font-bold text-zinc-300 mb-2">
-              {data?.error ? "Couldn't load streams" : "No streams are live"}
+              {errorMessage || data?.error ? "Couldn't load streams" : "No streams are live"}
             </h2>
             <p className="text-zinc-500 max-w-md">
-              {data?.error
-                ? data.error
+              {errorMessage || data?.error
+                ? "Something went wrong while checking Twitch. Try Refresh, or check back in a minute."
                 : "There are currently no Keizaal RP streams live on Twitch right now."}
             </p>
+            {data?.generatedAt ? (
+              <p className="text-zinc-600 text-sm mt-3">
+                Last checked {formatTimeAgo(data.generatedAt)}
+              </p>
+            ) : null}
+            <div className="flex items-center gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => fetchStreams(true)}
+                disabled={loading || refreshing}
+                className="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-keizaal-accent" : ""}`} />
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowHowTo(true);
+                  window.setTimeout(() => {
+                    howToRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 0);
+                }}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-sm font-medium rounded-lg transition-colors"
+              >
+                How to get featured
+              </button>
+            </div>
           </div>
         )}
 
-        <div className="mt-auto border border-zinc-800 rounded-xl overflow-hidden bg-keizaal-card">
+        <div ref={howToRef} className="mt-auto border border-zinc-800 rounded-xl overflow-hidden bg-keizaal-card">
           <button 
             onClick={() => setShowHowTo(!showHowTo)}
             className="w-full flex items-center justify-between p-4 sm:p-5 text-left hover:bg-zinc-800/30 transition-colors"
@@ -270,7 +517,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Footer */}
       <footer className="border-t border-zinc-800 bg-black mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="mb-12 flex flex-col gap-4">
@@ -279,6 +525,9 @@ export default function Home() {
             </h2>
             <p className="text-zinc-500 text-sm max-w-xl leading-relaxed">
               Not affiliated with Keizaal Online, Bethesda Softworks or Zenimax Media. The Elder Scrolls&reg; and Skyrim&reg; are registered trademarks of their respective owners. The Keizaal Online logo belongs to its respective owners.
+            </p>
+            <p className="text-zinc-600 text-xs max-w-xl leading-relaxed">
+              How it works: this site automatically lists live Twitch streams in Skyrim categories when their titles include Keizaal / Skyrim RP terms. Updated every 60 seconds.
             </p>
           </div>
           
@@ -289,6 +538,24 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Toast Notifications */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`px-4 py-3 rounded-lg shadow-xl backdrop-blur-md border text-sm font-medium animate-in slide-in-from-bottom-5 fade-in duration-300 ${
+                toast.type === 'success' 
+                  ? 'bg-keizaal-accent/20 border-keizaal-accent/50 text-white' 
+                  : 'bg-zinc-800/90 border-zinc-700 text-zinc-100'
+              }`}
+            >
+              {toast.message}
+            </div>
+          ))}
+        </div>
+      )}
     </main>
   );
 }

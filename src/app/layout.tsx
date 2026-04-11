@@ -59,7 +59,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Keizaal Live Streams | Skyrim RP",
     description: "Discover live streams of The Elder Scrolls V: Skyrim on the Keizaal roleplay server. See who is live and jump into the action.",
-    creator: "@its_teewee", // Replace with your actual Twitter handle if different
+    creator: "@its_teewee",
   },
 };
 
