@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { RefreshCw, Users, Radio, Info, ChevronDown, ChevronUp, Play, Pause, Share2, Flame, Clock } from "lucide-react";
+import { RefreshCw, Users, Radio, Info, ChevronDown, ChevronUp, Play, Pause, Flame, Clock } from "lucide-react";
 
 interface Stream {
   platform: string;
@@ -16,12 +16,6 @@ interface Stream {
   url: string;
   isLive: boolean;
   startedAt: string;
-}
-
-interface ToastMessage {
-  id: number;
-  message: string;
-  type: 'info' | 'success';
 }
 
 interface Stats {
@@ -46,20 +40,6 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [imageBuster, setImageBuster] = useState(() => Date.now());
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-  const addToast = (message: string, type: 'info' | 'success' = 'info') => {
-    const id = Date.now() + Math.random();
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 5000);
-  };
-
-  const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
-    addToast("Link copied to clipboard!", "success");
-  };
 
   const lastGoodDataRef = useRef<StreamsResponse | null>(null);
   const fetchStreamsRef = useRef<(isRefresh?: boolean) => Promise<void>>(async () => {});
@@ -198,6 +178,9 @@ export default function Home() {
             <Link href="/stats" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
               Stats
             </Link>
+            <Link href="/streamers" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+              Streamers
+            </Link>
             <a
               href="https://keizaal.com"
               target="_blank"
@@ -214,15 +197,6 @@ export default function Home() {
             >
               Official Discord
             </a>
-            <button
-              onClick={handleShare}
-              className="text-zinc-400 hover:text-white transition-colors flex items-center"
-              title="Share"
-              aria-label="Share"
-              type="button"
-            >
-              <Share2 className="w-4 h-4" />
-            </button>
           </nav>
         </div>
       </header>
@@ -532,24 +506,6 @@ export default function Home() {
           </div>
         </div>
       </footer>
-
-      {/* Toast Notifications */}
-      {toasts.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
-          {toasts.map((toast) => (
-            <div
-              key={toast.id}
-              className={`px-4 py-3 rounded-lg shadow-xl backdrop-blur-md border text-sm font-medium animate-in slide-in-from-bottom-5 fade-in duration-300 ${
-                toast.type === 'success' 
-                  ? 'bg-keizaal-accent/20 border-keizaal-accent/50 text-white' 
-                  : 'bg-zinc-800/90 border-zinc-700 text-zinc-100'
-              }`}
-            >
-              {toast.message}
-            </div>
-          ))}
-        </div>
-      )}
     </main>
   );
 }

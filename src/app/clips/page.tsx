@@ -176,6 +176,9 @@ export default function TopClipsPage() {
             <Link href="/stats" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
               Stats
             </Link>
+            <Link href="/streamers" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+              Streamers
+            </Link>
             <a
               href="https://keizaal.com"
               target="_blank"

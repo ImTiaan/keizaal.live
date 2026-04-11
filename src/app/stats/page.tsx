@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Activity, BarChart3, LineChart as LineChartIcon, Sparkles, Users } from "lucide-react";
+import { Activity, BarChart3, LineChart as LineChartIcon, Sparkles } from "lucide-react";
 
 type RangeKey = "24h" | "7d" | "30d" | "90d" | "365d";
 
@@ -26,22 +26,6 @@ type ApiResponse = {
   expectedPoints: number;
   series: ApiPoint[];
   previous: ApiPoint[] | null;
-  error?: string;
-};
-
-type LeaderboardRow = {
-  channel: string;
-  displayName: string;
-  profileImageUrl: string;
-  daysStreamed: number;
-  maxViewers: number;
-};
-
-type LeaderboardResponse = {
-  range: RangeKey;
-  start: string;
-  end: string;
-  leaderboard: LeaderboardRow[];
   error?: string;
 };
 
@@ -230,7 +214,7 @@ function Chart({
             Avg
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-zinc-400" />
+            <span className="w-2 h-2 rounded-full bg-violet-400" />
             Peak
           </span>
           {valuesPrevAvg ? (
@@ -275,8 +259,8 @@ function Chart({
           {dPrev ? (
             <path d={dPrev} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="2" strokeDasharray="6 6" />
           ) : null}
-          {dPeak ? <path d={dPeak} fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" /> : null}
-          {dAvg ? <path d={dAvg} fill="none" stroke="rgba(185,142,255,0.95)" strokeWidth="3" /> : null}
+          {dAvg ? <path d={dAvg} fill="none" stroke="rgba(34,121,97,0.95)" strokeWidth="3" /> : null}
+          {dPeak ? <path d={dPeak} fill="none" stroke="rgba(185,142,255,0.9)" strokeWidth="2" /> : null}
 
           {markerX !== null ? (
             <line x1={markerX} y1={padding} x2={markerX} y2={height - padding} stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
@@ -293,10 +277,8 @@ export default function StatsPage() {
   const [compareEnabled, setCompareEnabled] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardRow[] | null>(null);
-  const [leaderboardLoading, setLeaderboardLoading] = useState(true);
-  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [hoverClient, setHoverClient] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -318,7 +300,10 @@ export default function StatsPage() {
         const msg = e instanceof Error ? e.message : "Failed to load stats";
         if (!cancelled) setErrorMessage(msg);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          window.setTimeout(() => setSwitching(false), 150);
+        }
       }
     })();
 
@@ -326,30 +311,6 @@ export default function StatsPage() {
       cancelled = true;
     };
   }, [compareEnabled, range]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLeaderboardLoading(true);
-    setLeaderboardError(null);
-
-    (async () => {
-      try {
-        const res = await fetch(`/api/stats/streamers?range=${range}`, { cache: "no-store" });
-        const json = (await res.json()) as LeaderboardResponse;
-        if (!res.ok) throw new Error(json.error || "Failed to load leaderboard");
-        if (!cancelled) setLeaderboard(Array.isArray(json.leaderboard) ? json.leaderboard : []);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "Failed to load leaderboard";
-        if (!cancelled) setLeaderboardError(msg);
-      } finally {
-        if (!cancelled) setLeaderboardLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [range]);
 
   const filled = useMemo(() => {
     if (!data) return null;
@@ -451,6 +412,9 @@ export default function StatsPage() {
             <Link href="/stats" className="text-white transition-colors hidden sm:inline-block">
               Stats
             </Link>
+            <Link href="/streamers" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+              Streamers
+            </Link>
             <a
               href="https://keizaal.com"
               target="_blank"
@@ -488,7 +452,10 @@ export default function StatsPage() {
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => setRange(opt.value)}
+                      onClick={() => {
+                        setSwitching(true);
+                        setRange(opt.value);
+                      }}
                       className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
                         range === opt.value
                           ? "bg-zinc-800 border-zinc-700 text-white"
@@ -553,139 +520,114 @@ export default function StatsPage() {
           </div>
         ) : data && filled && viewersStats && streamsStats ? (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
-                <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Avg Viewers</div>
-                <div className="text-2xl font-bold text-white mt-2">{formatAvg(viewersStats.cur.avg)}</div>
-                {compareEnabled && viewersStats.prev ? (
-                  <div className="text-xs text-zinc-500 mt-1">vs prev {formatDelta(viewersStats.cur.avg, viewersStats.prev.avg)}</div>
-                ) : null}
+            {switching ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Array.from({ length: 6 }).map((_, idx) => (
+                  <div
+                    key={String(idx)}
+                    className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg animate-pulse"
+                  >
+                    <div className="h-3 w-24 bg-zinc-800 rounded" />
+                    <div className="h-7 w-28 bg-zinc-800 rounded mt-3" />
+                    <div className="h-3 w-20 bg-zinc-900 rounded mt-3" />
+                  </div>
+                ))}
               </div>
-              <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
-                <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Peak Viewers</div>
-                <div className="text-2xl font-bold text-white mt-2">{formatCompact(viewersStats.cur.peak)}</div>
-              </div>
-              <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
-                <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Min Viewers</div>
-                <div className="text-2xl font-bold text-white mt-2">{formatCompact(viewersStats.cur.min)}</div>
-              </div>
-
-              <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
-                <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Avg Live Streams</div>
-                <div className="text-2xl font-bold text-white mt-2">{formatAvg(streamsStats.cur.avg)}</div>
-                {compareEnabled && streamsStats.prev ? (
-                  <div className="text-xs text-zinc-500 mt-1">vs prev {formatDelta(streamsStats.cur.avg, streamsStats.prev.avg)}</div>
-                ) : null}
-              </div>
-              <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
-                <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Peak Live Streams</div>
-                <div className="text-2xl font-bold text-white mt-2">{formatCompact(streamsStats.cur.peak)}</div>
-              </div>
-              <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
-                <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Min Live Streams</div>
-                <div className="text-2xl font-bold text-white mt-2">{formatCompact(streamsStats.cur.min)}</div>
-              </div>
-            </div>
-
-            <Chart
-              title="Total Viewers"
-              subtitle={compareEnabled ? "Avg + Peak (Prev Avg in dashed)" : "Avg + Peak"}
-              valuesAvg={filled.current.filled.map((p) => p.avgViewers)}
-              valuesPeak={filled.current.filled.map((p) => p.peakViewers)}
-              valuesPrevAvg={compareEnabled && filled.previous ? filled.previous.filled.map((p) => p.avgViewers) : null}
-              smoothingEnabled={smoothingEnabled}
-              smoothingWindow={smoothingWindow}
-              formatY={(n) => formatCompact(Math.round(n))}
-              hoveredIndex={hoveredIndex}
-              onHover={(idx, x, y) => {
-                setHoveredIndex(idx);
-                setHoverClient(idx === null ? null : { x, y });
-              }}
-            />
-
-            <Chart
-              title="Live Streams"
-              subtitle={compareEnabled ? "Avg + Peak (Prev Avg in dashed)" : "Avg + Peak"}
-              valuesAvg={filled.current.filled.map((p) => p.avgStreams)}
-              valuesPeak={filled.current.filled.map((p) => p.peakStreams)}
-              valuesPrevAvg={compareEnabled && filled.previous ? filled.previous.filled.map((p) => p.avgStreams) : null}
-              smoothingEnabled={smoothingEnabled}
-              smoothingWindow={smoothingWindow}
-              formatY={(n) => formatCompact(Math.round(n))}
-              hoveredIndex={hoveredIndex}
-              onHover={(idx, x, y) => {
-                setHoveredIndex(idx);
-                setHoverClient(idx === null ? null : { x, y });
-              }}
-            />
-
-            <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card shadow-lg overflow-hidden">
-              <div className="px-4 py-4 border-b border-zinc-800/50 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-zinc-400" />
-                  <div className="text-sm font-semibold text-zinc-200">Top Streamers</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
+                  <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Avg Viewers</div>
+                  <div className="text-2xl font-bold text-white mt-2">{formatAvg(viewersStats.cur.avg)}</div>
+                  {compareEnabled && viewersStats.prev ? (
+                    <div className="text-xs text-zinc-500 mt-1">
+                      vs prev {formatDelta(viewersStats.cur.avg, viewersStats.prev.avg)}
+                    </div>
+                  ) : null}
                 </div>
-                <div className="text-xs text-zinc-500">Sorted by days streamed, then max viewers</div>
-              </div>
-
-              {leaderboardError ? (
-                <div className="px-4 py-4 text-sm text-zinc-400">{leaderboardError}</div>
-              ) : leaderboardLoading ? (
-                <div className="px-4 py-4 text-sm text-zinc-500">Loading leaderboard…</div>
-              ) : leaderboard && leaderboard.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="text-xs uppercase tracking-wider text-zinc-500">
-                      <tr className="border-b border-zinc-800/50">
-                        <th className="text-left font-semibold px-4 py-3 w-12">#</th>
-                        <th className="text-left font-semibold px-4 py-3">Streamer</th>
-                        <th className="text-right font-semibold px-4 py-3 w-28">Days</th>
-                        <th className="text-right font-semibold px-4 py-3 w-32">Max Viewers</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {leaderboard.slice(0, 50).map((row, idx) => (
-                        <tr key={row.channel} className="border-b border-zinc-800/30 hover:bg-zinc-900/30">
-                          <td className="px-4 py-3 text-zinc-500 tabular-nums">{idx + 1}</td>
-                          <td className="px-4 py-3">
-                            <a
-                              href={`https://twitch.tv/${row.channel}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex items-center gap-3 group"
-                            >
-                              {row.profileImageUrl ? (
-                                <Image
-                                  src={row.profileImageUrl}
-                                  alt={row.displayName}
-                                  width={28}
-                                  height={28}
-                                  className="rounded-full object-cover bg-zinc-800"
-                                />
-                              ) : (
-                                <div className="w-7 h-7 rounded-full bg-zinc-800" />
-                              )}
-                              <div className="min-w-0">
-                                <div className="font-semibold text-zinc-200 group-hover:text-white transition-colors truncate">
-                                  {row.displayName}
-                                </div>
-                                <div className="text-xs text-zinc-500 truncate">{row.channel}</div>
-                              </div>
-                            </a>
-                          </td>
-                          <td className="px-4 py-3 text-right tabular-nums text-zinc-200">{row.daysStreamed}</td>
-                          <td className="px-4 py-3 text-right tabular-nums text-zinc-200">
-                            {row.maxViewers.toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
+                  <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Peak Viewers</div>
+                  <div className="text-2xl font-bold text-white mt-2">{formatCompact(viewersStats.cur.peak)}</div>
                 </div>
-              ) : (
-                <div className="px-4 py-4 text-sm text-zinc-500">No streamer data yet. Check back after a few snapshots.</div>
-              )}
-            </div>
+                <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
+                  <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Min Viewers</div>
+                  <div className="text-2xl font-bold text-white mt-2">{formatCompact(viewersStats.cur.min)}</div>
+                </div>
+
+                <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
+                  <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Avg Live Streams</div>
+                  <div className="text-2xl font-bold text-white mt-2">{formatAvg(streamsStats.cur.avg)}</div>
+                  {compareEnabled && streamsStats.prev ? (
+                    <div className="text-xs text-zinc-500 mt-1">
+                      vs prev {formatDelta(streamsStats.cur.avg, streamsStats.prev.avg)}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
+                  <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Peak Live Streams</div>
+                  <div className="text-2xl font-bold text-white mt-2">{formatCompact(streamsStats.cur.peak)}</div>
+                </div>
+                <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
+                  <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Min Live Streams</div>
+                  <div className="text-2xl font-bold text-white mt-2">{formatCompact(streamsStats.cur.min)}</div>
+                </div>
+              </div>
+            )}
+
+            {switching ? (
+              <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card shadow-lg overflow-hidden animate-pulse">
+                <div className="px-4 py-4 border-b border-zinc-800/50 flex items-center justify-between gap-3">
+                  <div className="h-4 w-32 bg-zinc-800 rounded" />
+                  <div className="h-3 w-40 bg-zinc-900 rounded" />
+                </div>
+                <div className="px-4 py-6">
+                  <div className="h-[240px] w-full bg-zinc-900/40 rounded-lg" />
+                </div>
+              </div>
+            ) : (
+              <Chart
+                title="Total Viewers"
+                subtitle={compareEnabled ? "Avg + Peak (Prev Avg in dashed)" : "Avg + Peak"}
+                valuesAvg={filled.current.filled.map((p) => p.avgViewers)}
+                valuesPeak={filled.current.filled.map((p) => p.peakViewers)}
+                valuesPrevAvg={compareEnabled && filled.previous ? filled.previous.filled.map((p) => p.avgViewers) : null}
+                smoothingEnabled={smoothingEnabled}
+                smoothingWindow={smoothingWindow}
+                formatY={(n) => formatCompact(Math.round(n))}
+                hoveredIndex={hoveredIndex}
+                onHover={(idx, x, y) => {
+                  setHoveredIndex(idx);
+                  setHoverClient(idx === null ? null : { x, y });
+                }}
+              />
+            )}
+
+            {switching ? (
+              <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card shadow-lg overflow-hidden animate-pulse">
+                <div className="px-4 py-4 border-b border-zinc-800/50 flex items-center justify-between gap-3">
+                  <div className="h-4 w-28 bg-zinc-800 rounded" />
+                  <div className="h-3 w-40 bg-zinc-900 rounded" />
+                </div>
+                <div className="px-4 py-6">
+                  <div className="h-[240px] w-full bg-zinc-900/40 rounded-lg" />
+                </div>
+              </div>
+            ) : (
+              <Chart
+                title="Live Streams"
+                subtitle={compareEnabled ? "Avg + Peak (Prev Avg in dashed)" : "Avg + Peak"}
+                valuesAvg={filled.current.filled.map((p) => p.avgStreams)}
+                valuesPeak={filled.current.filled.map((p) => p.peakStreams)}
+                valuesPrevAvg={compareEnabled && filled.previous ? filled.previous.filled.map((p) => p.avgStreams) : null}
+                smoothingEnabled={smoothingEnabled}
+                smoothingWindow={smoothingWindow}
+                formatY={(n) => formatCompact(Math.round(n))}
+                hoveredIndex={hoveredIndex}
+                onHover={(idx, x, y) => {
+                  setHoveredIndex(idx);
+                  setHoverClient(idx === null ? null : { x, y });
+                }}
+              />
+            )}
           </>
         ) : (
           <div className="flex-grow flex items-center justify-center text-zinc-500">
