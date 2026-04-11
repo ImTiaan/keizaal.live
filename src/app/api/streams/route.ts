@@ -5,6 +5,10 @@ export const revalidate = 60;
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET;
 
+const STREAMS_STALE_TTL_MS = 10 * 60 * 1000;
+let lastGoodStreamsPayload: unknown = null;
+let lastGoodStreamsAt = 0;
+
 type TwitchTokenResponse = {
   access_token: string;
   expires_in: number;
@@ -218,14 +222,20 @@ export async function GET() {
     const totalViewers = formattedStreams.reduce((acc, s) => acc + s.viewerCount, 0);
 
     const generatedAt = new Date().toISOString();
-    const response = NextResponse.json({
+    const payload = {
       generatedAt,
       stats: {
         liveStreams: formattedStreams.length,
         totalViewers,
       },
       streams: formattedStreams,
-    });
+    };
+
+    lastGoodStreamsPayload = payload;
+    lastGoodStreamsAt = Date.now();
+
+    const response = NextResponse.json(payload);
+    response.headers.set('X-Keizaal-Cache', 'miss');
 
     response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
     response.headers.set('CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
@@ -235,7 +245,19 @@ export async function GET() {
 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+    const hasFreshFallback =
+      lastGoodStreamsPayload && Date.now() - lastGoodStreamsAt < STREAMS_STALE_TTL_MS;
+    if (hasFreshFallback) {
+      const response = NextResponse.json(lastGoodStreamsPayload);
+      response.headers.set('X-Keizaal-Cache', 'stale');
+      response.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=30');
+      response.headers.set('CDN-Cache-Control', 'public, s-maxage=30, stale-while-revalidate=30');
+      response.headers.set('Vercel-CDN-Cache-Control', 'public, s-maxage=30, stale-while-revalidate=30');
+      return response;
+    }
+
     const response = NextResponse.json({ error: message }, { status: 500 });
+    response.headers.set('X-Keizaal-Cache', 'error');
     response.headers.set('Cache-Control', 'no-store');
     return response;
   }

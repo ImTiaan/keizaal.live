@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Eye, Play, RefreshCw } from "lucide-react";
+import { Eye, Play } from "lucide-react";
 
 type Clip = {
   id: string;
@@ -70,6 +70,7 @@ export default function TopClipsPage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [base30d, setBase30d] = useState<ClipsResponse | null>(null);
+  const [switching, setSwitching] = useState(false);
 
   const fetchClips = useCallback(
     async (nextRange: typeof range, limit?: number) => {
@@ -129,11 +130,13 @@ export default function TopClipsPage() {
 
   useEffect(() => {
     void (async () => {
+      setSwitching(true);
       setLoading(true);
 
       if (base30d) {
         setData(deriveFromBase(base30d, range));
         setLoading(false);
+        window.setTimeout(() => setSwitching(false), 200);
         return;
       }
 
@@ -144,6 +147,7 @@ export default function TopClipsPage() {
         setData(null);
       }
       setLoading(false);
+      window.setTimeout(() => setSwitching(false), 200);
     })();
   }, [base30d, deriveFromBase, fetchClips, range]);
 
@@ -168,6 +172,9 @@ export default function TopClipsPage() {
             </Link>
             <Link href="/clips" className="text-white transition-colors hidden sm:inline-block">
               Top Clips
+            </Link>
+            <Link href="/stats" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+              Stats
             </Link>
             <a
               href="https://keizaal.com"
@@ -207,7 +214,10 @@ export default function TopClipsPage() {
                       <button
                         key={opt.value}
                         type="button"
-                        onClick={() => setRange(opt.value)}
+                        onClick={() => {
+                          setSwitching(true);
+                          setRange(opt.value);
+                        }}
                         className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
                           range === opt.value
                             ? "bg-zinc-800 border-zinc-700 text-white"
@@ -234,9 +244,26 @@ export default function TopClipsPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-grow flex flex-col">
-        {loading ? (
-          <div className="flex-grow flex items-center justify-center">
-            <RefreshCw className="w-8 h-8 animate-spin text-keizaal-accent" />
+        {loading || switching ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+            {Array.from({ length: 9 }).map((_, idx) => (
+              <div
+                key={idx}
+                className="flex flex-col bg-keizaal-card rounded-xl overflow-hidden border border-zinc-800/50"
+              >
+                <div className="relative aspect-video bg-zinc-900 animate-pulse" />
+                <div className="p-4 flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-full bg-zinc-800 animate-pulse" />
+                    <div className="flex-1 min-w-0">
+                      <div className="h-5 w-32 bg-zinc-800 rounded animate-pulse" />
+                      <div className="h-4 w-40 bg-zinc-900 rounded mt-2 animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="h-5 w-5/6 bg-zinc-800 rounded animate-pulse" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : data?.clips && data.clips.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
@@ -254,6 +281,7 @@ export default function TopClipsPage() {
                       src={clip.thumbnailUrl}
                       alt={clip.title}
                       fill
+                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                       className="object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                   ) : null}

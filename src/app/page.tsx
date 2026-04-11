@@ -195,6 +195,9 @@ export default function Home() {
             <Link href="/clips" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
               Top Clips
             </Link>
+            <Link href="/stats" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+              Stats
+            </Link>
             <a
               href="https://keizaal.com"
               target="_blank"
@@ -234,7 +237,7 @@ export default function Home() {
             ) : null}
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-keizaal-card p-4 rounded-xl border border-zinc-800/50 shadow-lg">
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-6 flex-wrap">
               <div className="flex items-center gap-3">
                 <Radio className="w-7 h-7 text-red-500" />
                 <div>
@@ -351,6 +354,7 @@ export default function Home() {
                       src={withCacheBuster(stream.thumbnailUrl)}
                       alt={stream.title}
                       fill
+                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                       className="object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                   ) : null}

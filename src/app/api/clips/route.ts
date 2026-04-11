@@ -5,6 +5,9 @@ export const revalidate = 300;
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET;
 
+const CLIPS_CACHE_TTL_MS = 5 * 60 * 1000;
+const clipsResponseCache = new Map<string, { storedAt: number; payload: unknown }>();
+
 type TwitchTokenResponse = {
   access_token: string;
   expires_in: number;
@@ -176,16 +179,28 @@ function getRangeWindows(range: string) {
 }
 
 export async function GET(request: Request) {
+  const requestUrl = new URL(request.url);
+  const range = requestUrl.searchParams.get("range") || "7d";
+  const limitRaw = requestUrl.searchParams.get("limit");
+  const limitParsed = limitRaw ? Number.parseInt(limitRaw, 10) : 48;
+  const targetLimit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 250) : 48;
+
+  const cacheKey = `${range}:${targetLimit}`;
+  const cached = clipsResponseCache.get(cacheKey);
+  if (cached && Date.now() - cached.storedAt < CLIPS_CACHE_TTL_MS) {
+    const response = NextResponse.json(cached.payload);
+    response.headers.set("X-Keizaal-Cache", "hit");
+    response.headers.set("Cache-Control", "public, s-maxage=300, stale-while-revalidate=60");
+    response.headers.set("CDN-Cache-Control", "public, s-maxage=300, stale-while-revalidate=60");
+    response.headers.set("Vercel-CDN-Cache-Control", "public, s-maxage=300, stale-while-revalidate=60");
+    return response;
+  }
+
   try {
     if (!TWITCH_CLIENT_ID || !TWITCH_CLIENT_SECRET) {
       throw new Error("Missing Twitch credentials");
     }
 
-    const url = new URL(request.url);
-    const range = url.searchParams.get("range") || "7d";
-    const limitRaw = url.searchParams.get("limit");
-    const limitParsed = limitRaw ? Number.parseInt(limitRaw, 10) : 48;
-    const targetLimit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 250) : 48;
     const windows = getRangeWindows(range);
 
     const token = await getTwitchToken();
@@ -285,7 +300,7 @@ export async function GET(request: Request) {
     const totalViews = filtered.reduce((acc, c) => acc + (c.view_count || 0), 0);
     const generatedAt = new Date().toISOString();
 
-    const response = NextResponse.json({
+    const payload = {
       generatedAt,
       range,
       stats: {
@@ -306,7 +321,11 @@ export async function GET(request: Request) {
         broadcasterProfileImageUrl: profileImages[c.broadcaster_id] || "",
         creatorName: c.creator_name,
       })),
-    });
+    };
+
+    clipsResponseCache.set(cacheKey, { storedAt: Date.now(), payload });
+    const response = NextResponse.json(payload);
+    response.headers.set("X-Keizaal-Cache", "miss");
 
     response.headers.set("Cache-Control", "public, s-maxage=300, stale-while-revalidate=60");
     response.headers.set("CDN-Cache-Control", "public, s-maxage=300, stale-while-revalidate=60");
@@ -314,7 +333,18 @@ export async function GET(request: Request) {
     return response;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
+
+    if (cached) {
+      const response = NextResponse.json(cached.payload);
+      response.headers.set("X-Keizaal-Cache", "stale");
+      response.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=60");
+      response.headers.set("CDN-Cache-Control", "public, s-maxage=60, stale-while-revalidate=60");
+      response.headers.set("Vercel-CDN-Cache-Control", "public, s-maxage=60, stale-while-revalidate=60");
+      return response;
+    }
+
     const response = NextResponse.json({ error: message }, { status: 500 });
+    response.headers.set("X-Keizaal-Cache", "error");
     response.headers.set("Cache-Control", "no-store");
     return response;
   }
