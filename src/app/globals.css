@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --color-keizaal-bg: #09090b;
+  --color-keizaal-card: #18181b;
+  --color-keizaal-accent: #227961;
+  --color-keizaal-accent-hover: #1b634f;
+  --color-twitch: #9146ff;
+}
+
+body {
+  background-color: var(--color-keizaal-bg);
+  color: white;
+  font-family: Arial, Helvetica, sans-serif;
+}
