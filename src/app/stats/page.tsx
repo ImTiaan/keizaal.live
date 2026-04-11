@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Activity, BarChart3, LineChart as LineChartIcon, Sparkles } from "lucide-react";
+import { Activity, BarChart3, LineChart as LineChartIcon } from "lucide-react";
 
 type RangeKey = "24h" | "7d" | "30d" | "90d" | "365d";
 
@@ -259,7 +259,7 @@ function Chart({
           {dPrev ? (
             <path d={dPrev} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="2" strokeDasharray="6 6" />
           ) : null}
-          {dAvg ? <path d={dAvg} fill="none" stroke="rgba(34,121,97,0.95)" strokeWidth="3" /> : null}
+          {dAvg ? <path d={dAvg} fill="none" stroke="rgba(34,121,97,0.95)" strokeWidth="4" /> : null}
           {dPeak ? <path d={dPeak} fill="none" stroke="rgba(185,142,255,0.9)" strokeWidth="2" /> : null}
 
           {markerX !== null ? (
@@ -273,7 +273,7 @@ function Chart({
 
 export default function StatsPage() {
   const [range, setRange] = useState<RangeKey>("7d");
-  const [smoothingEnabled, setSmoothingEnabled] = useState(false);
+  const [smoothingEnabled] = useState(true);
   const [compareEnabled, setCompareEnabled] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -469,19 +469,6 @@ export default function StatsPage() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap justify-between">
-                <button
-                  type="button"
-                  onClick={() => setSmoothingEnabled((v) => !v)}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border flex items-center gap-2 ${
-                    smoothingEnabled
-                      ? "bg-zinc-800 border-zinc-700 text-white"
-                      : "bg-zinc-900/40 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700"
-                  }`}
-                  title="Toggle smoothing"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Smoothing
-                </button>
                 <button
                   type="button"
                   onClick={() => setCompareEnabled((v) => !v)}
