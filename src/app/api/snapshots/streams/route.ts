@@ -7,6 +7,12 @@ type StreamsResponse = {
     liveStreams?: number;
     totalViewers?: number;
   };
+  streams?: Array<{
+    channel: string;
+    displayName: string;
+    profileImageUrl: string;
+    viewerCount: number;
+  }>;
 };
 
 type Snapshot5mRow = {
@@ -24,6 +30,15 @@ type RollupRow = {
   min_live_streams: number;
   max_total_viewers: number;
   min_total_viewers: number;
+};
+
+type StreamerDailyRow = {
+  day_start: string;
+  channel: string;
+  display_name: string;
+  profile_image_url: string;
+  max_viewers: number;
+  last_seen_at: string;
 };
 
 function assertEnv(name: string): string {
@@ -194,6 +209,57 @@ async function applyRollup(
   });
 }
 
+async function getExistingStreamerDailyRows(dayStartIso: string, channels: string[]) {
+  if (channels.length === 0) return [] as StreamerDailyRow[];
+  const qs = new URLSearchParams({
+    select: "day_start,channel,display_name,profile_image_url,max_viewers,last_seen_at",
+  });
+  qs.append("day_start", `eq.${dayStartIso}`);
+  qs.append("or", `(${channels.map((c) => `channel.eq.${c}`).join(",")})`);
+
+  const res = await supabaseFetch(`/rest/v1/streamer_daily?${qs.toString()}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase streamer_daily lookup failed (${res.status}): ${text}`);
+  }
+  return (await res.json()) as StreamerDailyRow[];
+}
+
+async function insertStreamerDailyRows(rows: StreamerDailyRow[]) {
+  if (rows.length === 0) return;
+  const res = await supabaseFetch(`/rest/v1/streamer_daily?on_conflict=day_start,channel`, {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase streamer_daily insert failed (${res.status}): ${text}`);
+  }
+}
+
+async function updateStreamerDailyRow(dayStartIso: string, channel: string, patch: Partial<StreamerDailyRow>) {
+  const qs = new URLSearchParams();
+  qs.append("day_start", `eq.${dayStartIso}`);
+  qs.append("channel", `eq.${channel}`);
+  const res = await supabaseFetch(`/rest/v1/streamer_daily?${qs.toString()}`, {
+    method: "PATCH",
+    headers: {
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase streamer_daily update failed (${res.status}): ${text}`);
+  }
+}
+
 function isAuthorized(request: Request) {
   const expected = assertEnv("CRON_SECRET");
   const auth = request.headers.get("authorization") || "";
@@ -244,6 +310,56 @@ export async function GET(request: Request) {
 
     await applyRollup("stream_snapshots_hourly", bucketHourStartIso(capturedAtMs), liveStreams, totalViewers);
     await applyRollup("stream_snapshots_daily", bucketDayStartIso(capturedAtMs), liveStreams, totalViewers);
+
+    const streams = Array.isArray(streamsJson.streams) ? streamsJson.streams : [];
+    const dayStartIso = bucketDayStartIso(capturedAtMs);
+    const channels = streams
+      .map((s) => String(s.channel || "").toLowerCase())
+      .filter((c) => /^[a-z0-9_]{1,64}$/.test(c));
+
+    const uniqueChannels = Array.from(new Set(channels));
+    const existing = await getExistingStreamerDailyRows(dayStartIso, uniqueChannels);
+    const byChannel = new Map(existing.map((r) => [r.channel.toLowerCase(), r]));
+
+    const toInsert: StreamerDailyRow[] = [];
+    const toUpdate: Array<{ channel: string; patch: Partial<StreamerDailyRow> }> = [];
+
+    for (const s of streams) {
+      const channel = String(s.channel || "").toLowerCase();
+      if (!/^[a-z0-9_]{1,64}$/.test(channel)) continue;
+      const displayName = String(s.displayName || channel);
+      const profileImageUrl = String(s.profileImageUrl || "");
+      const viewerCount = Number(s.viewerCount || 0);
+      if (!Number.isFinite(viewerCount)) continue;
+
+      const existingRow = byChannel.get(channel);
+      if (!existingRow) {
+        toInsert.push({
+          day_start: dayStartIso,
+          channel,
+          display_name: displayName,
+          profile_image_url: profileImageUrl,
+          max_viewers: Math.max(0, Math.floor(viewerCount)),
+          last_seen_at: capturedAtIso,
+        });
+        continue;
+      }
+
+      const nextMax = Math.max(existingRow.max_viewers, Math.floor(viewerCount));
+      const patch: Partial<StreamerDailyRow> = {};
+      if (nextMax !== existingRow.max_viewers) patch.max_viewers = nextMax;
+      if (existingRow.last_seen_at !== capturedAtIso) patch.last_seen_at = capturedAtIso;
+      if (profileImageUrl && existingRow.profile_image_url !== profileImageUrl) patch.profile_image_url = profileImageUrl;
+      if (displayName && existingRow.display_name !== displayName) patch.display_name = displayName;
+      if (Object.keys(patch).length > 0) {
+        toUpdate.push({ channel, patch });
+      }
+    }
+
+    await insertStreamerDailyRows(toInsert);
+    await Promise.allSettled(
+      toUpdate.map((u) => updateStreamerDailyRow(dayStartIso, u.channel, u.patch))
+    );
 
     return NextResponse.json(
       { ok: true, capturedAt: capturedAtIso, liveStreams, totalViewers },

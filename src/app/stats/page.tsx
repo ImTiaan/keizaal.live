@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Activity, BarChart3, LineChart as LineChartIcon, Sparkles } from "lucide-react";
+import { Activity, BarChart3, LineChart as LineChartIcon, Sparkles, Users } from "lucide-react";
 
 type RangeKey = "24h" | "7d" | "30d" | "90d" | "365d";
 
@@ -26,6 +26,22 @@ type ApiResponse = {
   expectedPoints: number;
   series: ApiPoint[];
   previous: ApiPoint[] | null;
+  error?: string;
+};
+
+type LeaderboardRow = {
+  channel: string;
+  displayName: string;
+  profileImageUrl: string;
+  daysStreamed: number;
+  maxViewers: number;
+};
+
+type LeaderboardResponse = {
+  range: RangeKey;
+  start: string;
+  end: string;
+  leaderboard: LeaderboardRow[];
   error?: string;
 };
 
@@ -278,6 +294,9 @@ export default function StatsPage() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardRow[] | null>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [hoverClient, setHoverClient] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -307,6 +326,30 @@ export default function StatsPage() {
       cancelled = true;
     };
   }, [compareEnabled, range]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLeaderboardLoading(true);
+    setLeaderboardError(null);
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/stats/streamers?range=${range}`, { cache: "no-store" });
+        const json = (await res.json()) as LeaderboardResponse;
+        if (!res.ok) throw new Error(json.error || "Failed to load leaderboard");
+        if (!cancelled) setLeaderboard(Array.isArray(json.leaderboard) ? json.leaderboard : []);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to load leaderboard";
+        if (!cancelled) setLeaderboardError(msg);
+      } finally {
+        if (!cancelled) setLeaderboardLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [range]);
 
   const filled = useMemo(() => {
     if (!data) return null;
@@ -575,6 +618,74 @@ export default function StatsPage() {
                 setHoverClient(idx === null ? null : { x, y });
               }}
             />
+
+            <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card shadow-lg overflow-hidden">
+              <div className="px-4 py-4 border-b border-zinc-800/50 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-zinc-400" />
+                  <div className="text-sm font-semibold text-zinc-200">Top Streamers</div>
+                </div>
+                <div className="text-xs text-zinc-500">Sorted by days streamed, then max viewers</div>
+              </div>
+
+              {leaderboardError ? (
+                <div className="px-4 py-4 text-sm text-zinc-400">{leaderboardError}</div>
+              ) : leaderboardLoading ? (
+                <div className="px-4 py-4 text-sm text-zinc-500">Loading leaderboard…</div>
+              ) : leaderboard && leaderboard.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-xs uppercase tracking-wider text-zinc-500">
+                      <tr className="border-b border-zinc-800/50">
+                        <th className="text-left font-semibold px-4 py-3 w-12">#</th>
+                        <th className="text-left font-semibold px-4 py-3">Streamer</th>
+                        <th className="text-right font-semibold px-4 py-3 w-28">Days</th>
+                        <th className="text-right font-semibold px-4 py-3 w-32">Max Viewers</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leaderboard.slice(0, 50).map((row, idx) => (
+                        <tr key={row.channel} className="border-b border-zinc-800/30 hover:bg-zinc-900/30">
+                          <td className="px-4 py-3 text-zinc-500 tabular-nums">{idx + 1}</td>
+                          <td className="px-4 py-3">
+                            <a
+                              href={`https://twitch.tv/${row.channel}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-3 group"
+                            >
+                              {row.profileImageUrl ? (
+                                <Image
+                                  src={row.profileImageUrl}
+                                  alt={row.displayName}
+                                  width={28}
+                                  height={28}
+                                  className="rounded-full object-cover bg-zinc-800"
+                                />
+                              ) : (
+                                <div className="w-7 h-7 rounded-full bg-zinc-800" />
+                              )}
+                              <div className="min-w-0">
+                                <div className="font-semibold text-zinc-200 group-hover:text-white transition-colors truncate">
+                                  {row.displayName}
+                                </div>
+                                <div className="text-xs text-zinc-500 truncate">{row.channel}</div>
+                              </div>
+                            </a>
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums text-zinc-200">{row.daysStreamed}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-zinc-200">
+                            {row.maxViewers.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="px-4 py-4 text-sm text-zinc-500">No streamer data yet. Check back after a few snapshots.</div>
+              )}
+            </div>
           </>
         ) : (
           <div className="flex-grow flex items-center justify-center text-zinc-500">
@@ -616,4 +727,3 @@ export default function StatsPage() {
     </main>
   );
 }
-
