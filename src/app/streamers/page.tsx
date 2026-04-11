@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Users } from "lucide-react";
 
-type RangeKey = "24h" | "7d" | "30d" | "90d" | "365d";
+type RangeKey = "all" | "24h" | "7d" | "30d" | "90d" | "365d";
 
 type LeaderboardRow = {
   channel: string;
@@ -24,6 +24,7 @@ type LeaderboardResponse = {
 };
 
 const RANGE_OPTIONS: Array<{ label: string; value: RangeKey }> = [
+  { label: "All", value: "all" },
   { label: "24h", value: "24h" },
   { label: "7d", value: "7d" },
   { label: "30d", value: "30d" },
@@ -32,7 +33,7 @@ const RANGE_OPTIONS: Array<{ label: string; value: RangeKey }> = [
 ];
 
 export default function StreamersPage() {
-  const [range, setRange] = useState<RangeKey>("7d");
+  const [range, setRange] = useState<RangeKey>("all");
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -86,6 +87,7 @@ export default function StreamersPage() {
 
   const subtitle = useMemo(() => {
     if (loading) return "";
+    if (range === "all") return "Since tracking started";
     return range === "24h" ? "Last 24 hours" : `Last ${range.replace("d", "")} days`;
   }, [loading, range]);
 

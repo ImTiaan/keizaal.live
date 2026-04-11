@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export const revalidate = 0;
 
-type RangeKey = "24h" | "7d" | "30d" | "90d" | "365d";
+type RangeKey = "all" | "24h" | "7d" | "30d" | "90d" | "365d";
 
 type StreamerDailyRow = {
   day_start: string;
@@ -32,7 +32,14 @@ function getSupabaseUrl() {
 }
 
 function parseRange(value: string | null): RangeKey {
-  if (value === "24h" || value === "7d" || value === "30d" || value === "90d" || value === "365d") {
+  if (
+    value === "all" ||
+    value === "24h" ||
+    value === "7d" ||
+    value === "30d" ||
+    value === "90d" ||
+    value === "365d"
+  ) {
     return value;
   }
   return "7d";
@@ -96,14 +103,36 @@ async function fetchAllDailyRows(startIso: string, endIso: string) {
   return rows;
 }
 
+async function fetchEarliestDayStart() {
+  const qs = new URLSearchParams({
+    select: "day_start",
+    order: "day_start.asc",
+    limit: "1",
+  });
+  const res = await supabaseFetch(`/rest/v1/streamer_daily?${qs.toString()}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase streamer_daily earliest query failed (${res.status}): ${text}`);
+  }
+  const json = (await res.json()) as Array<{ day_start: string }>;
+  const first = json[0]?.day_start;
+  if (!first) return null;
+  return new Date(first).toISOString();
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const range = parseRange(url.searchParams.get("range"));
-    const days = rangeToDays(range);
 
     const endIso = dayStartIsoFromMs(Date.now());
-    const startIso = dayStartIsoFromMs(Date.now() - (days - 1) * 24 * 60 * 60 * 1000);
+    const startIso =
+      range === "all"
+        ? ((await fetchEarliestDayStart()) ?? endIso)
+        : dayStartIsoFromMs(Date.now() - (rangeToDays(range) - 1) * 24 * 60 * 60 * 1000);
 
     const rows = await fetchAllDailyRows(startIso, endIso);
 
@@ -172,4 +201,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: message }, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
 }
-
