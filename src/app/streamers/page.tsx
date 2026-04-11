@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Activity, Users } from "lucide-react";
+import { Users } from "lucide-react";
 
 type RangeKey = "24h" | "7d" | "30d" | "90d" | "365d";
 
@@ -37,6 +37,8 @@ export default function StreamersPage() {
   const [switching, setSwitching] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +66,23 @@ export default function StreamersPage() {
       cancelled = true;
     };
   }, [range]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [range]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(leaderboard.length / pageSize));
+  }, [leaderboard.length]);
+
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(1, p), totalPages));
+  }, [totalPages]);
+
+  const pagedLeaderboard = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return leaderboard.slice(start, start + pageSize);
+  }, [leaderboard, page]);
 
   const subtitle = useMemo(() => {
     if (loading) return "";
@@ -152,27 +171,56 @@ export default function StreamersPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-grow flex flex-col gap-6">
-        {loading && !leaderboard.length ? (
-          <div className="flex-grow flex items-center justify-center">
-            <Activity className="w-8 h-8 animate-pulse text-keizaal-accent" />
-          </div>
-        ) : (
-          <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card shadow-lg overflow-hidden">
-            <div className="px-4 py-4 border-b border-zinc-800/50 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-zinc-400" />
-                <div className="text-sm font-semibold text-zinc-200">Top Streamers</div>
-              </div>
-              <div className="text-xs text-zinc-500">Sorted by days streamed, then max viewers</div>
+        <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card shadow-lg overflow-hidden">
+          <div className="px-4 py-4 border-b border-zinc-800/50 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-zinc-400" />
+              <div className="text-sm font-semibold text-zinc-200">Top Streamers</div>
             </div>
+            <div className="text-xs text-zinc-500">{subtitle}</div>
+          </div>
 
-            {switching ? (
-              <div className="px-4 py-4 animate-pulse">
-                <div className="h-10 bg-zinc-900/40 rounded-lg" />
-                <div className="h-10 bg-zinc-900/40 rounded-lg mt-3" />
-                <div className="h-10 bg-zinc-900/40 rounded-lg mt-3" />
-              </div>
-            ) : leaderboard.length > 0 ? (
+          {errorMessage ? (
+            <div className="px-4 py-4 text-sm text-zinc-400">{errorMessage}</div>
+          ) : loading || switching ? (
+            <div className="overflow-x-auto animate-pulse">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-wider text-zinc-500">
+                  <tr className="border-b border-zinc-800/50">
+                    <th className="text-left font-semibold px-4 py-3 w-12">#</th>
+                    <th className="text-left font-semibold px-4 py-3">Streamer</th>
+                    <th className="text-right font-semibold px-4 py-3 w-28">Days</th>
+                    <th className="text-right font-semibold px-4 py-3 w-32">Max Viewers</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: pageSize }).map((_, idx) => (
+                    <tr key={String(idx)} className="border-b border-zinc-800/30">
+                      <td className="px-4 py-3">
+                        <div className="h-4 w-6 bg-zinc-800 rounded" />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-7 h-7 rounded-full bg-zinc-800" />
+                          <div className="min-w-0">
+                            <div className="h-4 w-32 bg-zinc-800 rounded" />
+                            <div className="h-3 w-20 bg-zinc-900 rounded mt-2" />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="h-4 w-10 bg-zinc-800 rounded ml-auto" />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="h-4 w-16 bg-zinc-800 rounded ml-auto" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : leaderboard.length > 0 ? (
+            <>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-xs uppercase tracking-wider text-zinc-500">
@@ -184,9 +232,9 @@ export default function StreamersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {leaderboard.slice(0, 100).map((row, idx) => (
+                    {pagedLeaderboard.map((row, idx) => (
                       <tr key={row.channel} className="border-b border-zinc-800/30 hover:bg-zinc-900/30">
-                        <td className="px-4 py-3 text-zinc-500 tabular-nums">{idx + 1}</td>
+                        <td className="px-4 py-3 text-zinc-500 tabular-nums">{(page - 1) * pageSize + idx + 1}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <a href={`https://twitch.tv/${row.channel}`} target="_blank" rel="noreferrer">
@@ -222,13 +270,35 @@ export default function StreamersPage() {
                   </tbody>
                 </table>
               </div>
-            ) : (
-              <div className="px-4 py-4 text-sm text-zinc-500">No streamer data yet. Check back after a few snapshots.</div>
-            )}
-          </div>
-        )}
+              <div className="px-4 py-4 flex items-center justify-between gap-3">
+                <div className="text-xs text-zinc-500">
+                  Page {page} of {totalPages}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    className="px-3 py-2 rounded-lg text-sm font-medium transition-colors border bg-zinc-900/40 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700 disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-300"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    className="px-3 py-2 rounded-lg text-sm font-medium transition-colors border bg-zinc-900/40 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700 disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-300"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="px-4 py-4 text-sm text-zinc-500">No streamer data yet. Check back after a few snapshots.</div>
+          )}
+        </div>
       </div>
     </main>
   );
 }
-
