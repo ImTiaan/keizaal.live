@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Activity, BarChart3, LineChart as LineChartIcon } from "lucide-react";
+import { Activity, LineChart as LineChartIcon } from "lucide-react";
 
 type RangeKey = "24h" | "7d" | "30d" | "90d" | "365d";
 
@@ -63,14 +63,6 @@ function formatAvg(n: number) {
 function formatExactInt(n: number) {
   if (!Number.isFinite(n)) return "—";
   return Math.round(n).toLocaleString();
-}
-
-function formatDelta(current: number, prev: number) {
-  const diff = current - prev;
-  const pct = prev !== 0 ? (diff / prev) * 100 : 0;
-  const sign = diff > 0 ? "+" : diff < 0 ? "−" : "";
-  const absPct = Math.abs(pct);
-  return `${sign}${absPct.toFixed(1)}%`;
 }
 
 function movingAverage(values: Array<number | null>, windowSize: number) {
@@ -303,7 +295,6 @@ function Chart({
 export default function StatsPage() {
   const [range, setRange] = useState<RangeKey>("7d");
   const [smoothingEnabled] = useState(true);
-  const [compareEnabled, setCompareEnabled] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
@@ -319,7 +310,7 @@ export default function StatsPage() {
 
     (async () => {
       try {
-        const res = await fetch(`/api/stats/streams?range=${range}&compare=${compareEnabled ? "1" : "0"}`, {
+        const res = await fetch(`/api/stats/streams?range=${range}&compare=0`, {
           cache: "no-store",
         });
         const json = (await res.json()) as ApiResponse;
@@ -339,7 +330,7 @@ export default function StatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [compareEnabled, range]);
+  }, [range]);
 
   const filled = useMemo(() => {
     if (!data) return null;
@@ -364,14 +355,7 @@ export default function StatsPage() {
       filled.current.filled.map((p) => p.peakViewers),
       filled.current.filled.map((p) => p.minViewers)
     );
-    const prev = filled.previous
-      ? computeStats(
-          filled.previous.filled.map((p) => p.avgViewers),
-          filled.previous.filled.map((p) => p.peakViewers),
-          filled.previous.filled.map((p) => p.minViewers)
-        )
-      : null;
-    return { cur, prev };
+    return { cur, prev: null };
   }, [filled]);
 
   const streamsStats = useMemo(() => {
@@ -381,14 +365,7 @@ export default function StatsPage() {
       filled.current.filled.map((p) => p.peakStreams),
       filled.current.filled.map((p) => p.minStreams)
     );
-    const prev = filled.previous
-      ? computeStats(
-          filled.previous.filled.map((p) => p.avgStreams),
-          filled.previous.filled.map((p) => p.peakStreams),
-          filled.previous.filled.map((p) => p.minStreams)
-        )
-      : null;
-    return { cur, prev };
+    return { cur, prev: null };
   }, [filled]);
 
   const hoveredTime = useMemo(() => {
@@ -497,32 +474,13 @@ export default function StatsPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap justify-between">
-                <button
-                  type="button"
-                  onClick={() => setCompareEnabled((v) => !v)}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border flex items-center gap-2 ${
-                    compareEnabled
-                      ? "bg-zinc-800 border-zinc-700 text-white"
-                      : "bg-zinc-900/40 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700"
-                  }`}
-                  title="Compare with previous period"
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  Compare
-                </button>
-              </div>
+              <div className="flex items-center gap-2 flex-wrap justify-between" />
             </div>
 
             {data ? (
               <div className="text-xs text-zinc-500 flex items-center gap-2">
                 <LineChartIcon className="w-4 h-4" />
                 {subtitle}
-                {filled ? (
-                  <span className="text-zinc-600">
-                    • points {data.expectedPoints} • missing {filled.current.missing}
-                  </span>
-                ) : null}
               </div>
             ) : null}
           </div>
@@ -554,11 +512,7 @@ export default function StatsPage() {
                 <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
                   <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Avg Viewers</div>
                   <div className="text-2xl font-bold text-white mt-2">{formatAvg(viewersStats.cur.avg)}</div>
-                  {compareEnabled && viewersStats.prev ? (
-                    <div className="text-xs text-zinc-500 mt-1">
-                      vs prev {formatDelta(viewersStats.cur.avg, viewersStats.prev.avg)}
-                    </div>
-                  ) : null}
+                  {null}
                 </div>
                 <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
                   <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Peak Viewers</div>
@@ -572,11 +526,7 @@ export default function StatsPage() {
                 <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
                   <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Avg Live Streams</div>
                   <div className="text-2xl font-bold text-white mt-2">{formatAvg(streamsStats.cur.avg)}</div>
-                  {compareEnabled && streamsStats.prev ? (
-                    <div className="text-xs text-zinc-500 mt-1">
-                      vs prev {formatDelta(streamsStats.cur.avg, streamsStats.prev.avg)}
-                    </div>
-                  ) : null}
+                  {null}
                 </div>
                 <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
                   <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Peak Live Streams</div>
@@ -602,10 +552,10 @@ export default function StatsPage() {
             ) : (
               <Chart
                 title="Total Viewers"
-                subtitle={compareEnabled ? "Avg + Peak (Prev Avg in dashed)" : "Avg + Peak"}
+                subtitle="Avg + Peak"
                 valuesAvg={filled.current.filled.map((p) => p.avgViewers)}
                 valuesPeak={filled.current.filled.map((p) => p.peakViewers)}
-                valuesPrevAvg={compareEnabled && filled.previous ? filled.previous.filled.map((p) => p.avgViewers) : null}
+                valuesPrevAvg={null}
                 smoothingEnabled={smoothingEnabled}
                 smoothingWindow={smoothingWindow}
                 formatY={(n) => formatCompact(Math.round(n))}
@@ -630,10 +580,10 @@ export default function StatsPage() {
             ) : (
               <Chart
                 title="Live Streams"
-                subtitle={compareEnabled ? "Avg + Peak (Prev Avg in dashed)" : "Avg + Peak"}
+                subtitle="Avg + Peak"
                 valuesAvg={filled.current.filled.map((p) => p.avgStreams)}
                 valuesPeak={filled.current.filled.map((p) => p.peakStreams)}
-                valuesPrevAvg={compareEnabled && filled.previous ? filled.previous.filled.map((p) => p.avgStreams) : null}
+                valuesPrevAvg={null}
                 smoothingEnabled={smoothingEnabled}
                 smoothingWindow={smoothingWindow}
                 formatY={(n) => formatCompact(Math.round(n))}
@@ -672,12 +622,7 @@ export default function StatsPage() {
                   {hoveredValues.p.peakStreams !== null ? ` • ${formatExactInt(hoveredValues.p.peakStreams)} peak` : ""}
                 </span>
               </div>
-              {compareEnabled && hoveredValues.prev ? (
-                <div className="mt-2 text-xs text-zinc-500">
-                  Prev avg viewers {hoveredValues.prev.avgViewers !== null ? formatAvg(hoveredValues.prev.avgViewers) : "—"} • Prev avg streams{" "}
-                  {hoveredValues.prev.avgStreams !== null ? formatAvg(hoveredValues.prev.avgStreams) : "—"}
-                </div>
-              ) : null}
+              {null}
             </div>
           </div>
         ) : null}
