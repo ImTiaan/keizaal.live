@@ -122,16 +122,6 @@ export default function Home() {
       if (!res.ok) throw new Error(json.error || "Failed to fetch");
 
       const nextData = json as StreamsResponse;
-      
-      // Detect new streamers if this is a refresh
-      if (lastGoodDataRef.current && lastGoodDataRef.current.streams.length > 0) {
-        const oldChannels = new Set(lastGoodDataRef.current.streams.map(s => s.channel));
-        const newStreams = nextData.streams.filter(s => !oldChannels.has(s.channel));
-        
-        newStreams.forEach(s => {
-          addToast(`🎥 ${s.displayName} just went live playing Keizaal RP!`, 'info');
-        });
-      }
 
       setData(nextData);
       lastGoodDataRef.current = nextData;

@@ -69,31 +69,83 @@ export default function TopClipsPage() {
   const [data, setData] = useState<ClipsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [base30d, setBase30d] = useState<ClipsResponse | null>(null);
 
   const fetchClips = useCallback(
-    async (nextRange: typeof range) => {
+    async (nextRange: typeof range, limit?: number) => {
       setErrorMessage(null);
 
       try {
-        const res = await fetch(`/api/clips?range=${encodeURIComponent(nextRange)}`, {
+        const qs = new URLSearchParams({ range: nextRange });
+        if (typeof limit === "number") qs.set("limit", String(limit));
+
+        const res = await fetch(`/api/clips?${qs.toString()}`, {
           cache: "no-store",
         });
         const json = (await res.json()) as ClipsResponse;
         if (!res.ok) throw new Error(json.error || "Failed to fetch clips");
-        setData(json);
+        return json;
       } catch (err) {
-        setErrorMessage(err instanceof Error ? err.message : "Failed to fetch clips");
-        setData(null);
-      } finally {
-        setLoading(false);
+        const message = err instanceof Error ? err.message : "Failed to fetch clips";
+        setErrorMessage(message);
+        return null;
       }
     },
     []
   );
 
+  const deriveFromBase = useCallback((base: ClipsResponse, nextRange: typeof range) => {
+    const now = Date.now();
+    const withinMs =
+      nextRange === "24h" ? 24 * 60 * 60 * 1000 : nextRange === "7d" ? 7 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+    const cutoff = now - withinMs;
+
+    const filtered = base.clips
+      .filter((c) => new Date(c.createdAt).getTime() >= cutoff)
+      .sort((a, b) => b.viewCount - a.viewCount)
+      .slice(0, 48);
+
+    const totalViews = filtered.reduce((acc, c) => acc + (c.viewCount || 0), 0);
+
+    return {
+      generatedAt: base.generatedAt,
+      range: nextRange,
+      stats: {
+        clips: filtered.length,
+        totalViews,
+      },
+      clips: filtered,
+    } satisfies ClipsResponse;
+  }, []);
+
   useEffect(() => {
-    void fetchClips(range);
-  }, [fetchClips, range]);
+    void (async () => {
+      const result = await fetchClips("30d", 200);
+      if (result) {
+        setBase30d(result);
+      }
+    })();
+  }, [fetchClips]);
+
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+
+      if (base30d) {
+        setData(deriveFromBase(base30d, range));
+        setLoading(false);
+        return;
+      }
+
+      const result = await fetchClips(range);
+      if (result) {
+        setData(result);
+      } else {
+        setData(null);
+      }
+      setLoading(false);
+    })();
+  }, [base30d, deriveFromBase, fetchClips, range]);
 
   const generatedAtText = useMemo(() => {
     if (!data?.generatedAt) return "";

@@ -183,6 +183,9 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const range = url.searchParams.get("range") || "7d";
+    const limitRaw = url.searchParams.get("limit");
+    const limitParsed = limitRaw ? Number.parseInt(limitRaw, 10) : 48;
+    const targetLimit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 250) : 48;
     const windows = getRangeWindows(range);
 
     const token = await getTwitchToken();
@@ -196,6 +199,7 @@ export async function GET(request: Request) {
         let pagesFetched = 0;
         let matchesAddedForWindow = 0;
         const maxPages = 5;
+        const desiredMatchesForWindow = Math.min(Math.max(targetLimit, 48), 120);
 
         while (pagesFetched < maxPages) {
           const clipsUrl = new URL("https://api.twitch.tv/helix/clips");
@@ -240,7 +244,7 @@ export async function GET(request: Request) {
 
           cursor = nextCursor;
 
-          if (matchesAddedForWindow >= 80) {
+          if (matchesAddedForWindow >= desiredMatchesForWindow) {
             break;
           }
         }
@@ -249,7 +253,7 @@ export async function GET(request: Request) {
 
     const filtered = Array.from(clipsById.values())
       .sort((a, b) => b.view_count - a.view_count)
-      .slice(0, 48);
+      .slice(0, targetLimit);
 
     const broadcasterIds = Array.from(new Set(filtered.map((c) => c.broadcaster_id)));
     const profileImages: Record<string, string> = {};
