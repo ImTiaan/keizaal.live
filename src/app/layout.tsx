@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Cinzel } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -18,8 +19,48 @@ const cinzel = Cinzel({
 });
 
 export const metadata: Metadata = {
-  title: "Keizaal Live Streams",
-  description: "Live streams of The Elder Scrolls V: Skyrim on the Keizaal roleplay server.",
+  metadataBase: new URL("https://keizaal.live"),
+  title: {
+    default: "Keizaal Live Streams | Skyrim Roleplay Directory",
+    template: "%s | Keizaal Live"
+  },
+  description: "Discover live streams of The Elder Scrolls V: Skyrim on the Keizaal roleplay server. See who is live, check viewer counts, and jump into the best Skyrim RP action on Twitch.",
+  keywords: [
+    "Keizaal", "Keizaal RP", "Skyrim RP", "Skyrim Roleplay", 
+    "Keizaal Online", "Elder Scrolls V", "Twitch Directory", 
+    "Live Streams", "Skyrim Multiplayer"
+  ],
+  authors: [{ name: "teewee", url: "https://twitch.tv/its_teewee" }],
+  creator: "teewee",
+  publisher: "Keizaal Live",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  alternates: {
+    canonical: "https://keizaal.live",
+  },
+  openGraph: {
+    title: "Keizaal Live Streams | Skyrim RP Directory",
+    description: "Discover live streams of The Elder Scrolls V: Skyrim on the Keizaal roleplay server. See who is live, check viewer counts, and jump into the action.",
+    url: "https://keizaal.live",
+    siteName: "Keizaal Live",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Keizaal Live Streams | Skyrim RP",
+    description: "Discover live streams of The Elder Scrolls V: Skyrim on the Keizaal roleplay server. See who is live and jump into the action.",
+    creator: "@its_teewee", // Replace with your actual Twitter handle if different
+  },
 };
 
 export default function RootLayout({
@@ -32,7 +73,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${cinzel.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
