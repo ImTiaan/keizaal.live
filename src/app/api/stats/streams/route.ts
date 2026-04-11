@@ -110,7 +110,7 @@ function asPointFrom5m(row: Snapshot5mRow): SeriesPoint {
   const streams = Number(row.live_streams);
   const viewers = Number(row.total_viewers);
   return {
-    t: row.captured_at,
+    t: new Date(row.captured_at).toISOString(),
     avgViewers: viewers,
     peakViewers: viewers,
     minViewers: viewers,
@@ -125,7 +125,7 @@ function asPointFromRollup(row: RollupRow): SeriesPoint {
   const avgStreams = Number(row.sum_live_streams) / count;
   const avgViewers = Number(row.sum_total_viewers) / count;
   return {
-    t: row.bucket_start,
+    t: new Date(row.bucket_start).toISOString(),
     avgViewers,
     peakViewers: Number(row.max_total_viewers),
     minViewers: Number(row.min_total_viewers),
