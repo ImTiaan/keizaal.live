@@ -60,6 +60,11 @@ function formatAvg(n: number) {
   return n.toFixed(1);
 }
 
+function formatExactInt(n: number) {
+  if (!Number.isFinite(n)) return "—";
+  return Math.round(n).toLocaleString();
+}
+
 function formatDelta(current: number, prev: number) {
   const diff = current - prev;
   const pct = prev !== 0 ? (diff / prev) * 100 : 0;
@@ -148,6 +153,25 @@ function buildPath(values: Array<number | null>, width: number, height: number, 
   return d.trim();
 }
 
+function findNearestNonNullIndex(values: Array<number | null>, idx: number) {
+  if (idx < 0 || idx >= values.length) return null;
+  const center = values[idx];
+  if (typeof center === "number" && Number.isFinite(center)) return idx;
+  for (let offset = 1; offset < values.length; offset++) {
+    const left = idx - offset;
+    if (left >= 0) {
+      const v = values[left];
+      if (typeof v === "number" && Number.isFinite(v)) return left;
+    }
+    const right = idx + offset;
+    if (right < values.length) {
+      const v = values[right];
+      if (typeof v === "number" && Number.isFinite(v)) return right;
+    }
+  }
+  return null;
+}
+
 function Chart({
   title,
   subtitle,
@@ -232,13 +256,18 @@ function Chart({
           className="w-full h-[240px]"
           onMouseMove={(e) => {
             const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const idx = Math.round((x / rect.width) * (valuesAvg.length - 1));
-            if (idx < 0 || idx >= valuesAvg.length) {
+            const xPx = e.clientX - rect.left;
+            const xSvg = (xPx / rect.width) * width;
+            const plotW = width - padding * 2;
+            const xClamped = Math.min(Math.max(xSvg, padding), width - padding);
+            const t = plotW > 0 ? (xClamped - padding) / plotW : 0;
+            const rawIdx = Math.round(t * (valuesAvg.length - 1));
+            const snappedIdx = findNearestNonNullIndex(valuesAvg, rawIdx);
+            if (snappedIdx === null) {
               onHover(null, e.clientX, e.clientY);
               return;
             }
-            onHover(idx, e.clientX, e.clientY);
+            onHover(snappedIdx, e.clientX, e.clientY);
           }}
           onMouseLeave={(e) => onHover(null, e.clientX, e.clientY)}
         >
@@ -533,11 +562,11 @@ export default function StatsPage() {
                 </div>
                 <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
                   <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Peak Viewers</div>
-                  <div className="text-2xl font-bold text-white mt-2">{formatCompact(viewersStats.cur.peak)}</div>
+                <div className="text-2xl font-bold text-white mt-2">{formatExactInt(viewersStats.cur.peak)}</div>
                 </div>
                 <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
                   <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Min Viewers</div>
-                  <div className="text-2xl font-bold text-white mt-2">{formatCompact(viewersStats.cur.min)}</div>
+                <div className="text-2xl font-bold text-white mt-2">{formatExactInt(viewersStats.cur.min)}</div>
                 </div>
 
                 <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
@@ -551,11 +580,11 @@ export default function StatsPage() {
                 </div>
                 <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
                   <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Peak Live Streams</div>
-                  <div className="text-2xl font-bold text-white mt-2">{formatCompact(streamsStats.cur.peak)}</div>
+                <div className="text-2xl font-bold text-white mt-2">{formatExactInt(streamsStats.cur.peak)}</div>
                 </div>
                 <div className="rounded-xl border border-zinc-800/50 bg-keizaal-card p-4 shadow-lg">
                   <div className="text-xs text-zinc-500 font-semibold tracking-wider uppercase">Min Live Streams</div>
-                  <div className="text-2xl font-bold text-white mt-2">{formatCompact(streamsStats.cur.min)}</div>
+                <div className="text-2xl font-bold text-white mt-2">{formatExactInt(streamsStats.cur.min)}</div>
                 </div>
               </div>
             )}
@@ -633,14 +662,14 @@ export default function StatsPage() {
                 <span className="text-zinc-400">Viewers</span>
                 <span className="text-white font-semibold">
                   {hoveredValues.p.avgViewers !== null ? `${formatAvg(hoveredValues.p.avgViewers)} avg` : "—"}
-                  {hoveredValues.p.peakViewers !== null ? ` • ${formatCompact(Math.round(hoveredValues.p.peakViewers))} peak` : ""}
+                  {hoveredValues.p.peakViewers !== null ? ` • ${formatExactInt(hoveredValues.p.peakViewers)} peak` : ""}
                 </span>
               </div>
               <div className="mt-1 flex items-center justify-between text-sm">
                 <span className="text-zinc-400">Streams</span>
                 <span className="text-white font-semibold">
                   {hoveredValues.p.avgStreams !== null ? `${formatAvg(hoveredValues.p.avgStreams)} avg` : "—"}
-                  {hoveredValues.p.peakStreams !== null ? ` • ${formatCompact(Math.round(hoveredValues.p.peakStreams))} peak` : ""}
+                  {hoveredValues.p.peakStreams !== null ? ` • ${formatExactInt(hoveredValues.p.peakStreams)} peak` : ""}
                 </span>
               </div>
               {compareEnabled && hoveredValues.prev ? (
