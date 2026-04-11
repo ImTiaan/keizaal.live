@@ -261,16 +261,34 @@ async function updateStreamerDailyRow(dayStartIso: string, channel: string, patc
 }
 
 function isAuthorized(request: Request) {
-  const expected = assertEnv("CRON_SECRET");
+  const expected = process.env.CRON_SECRET;
+  if (!expected) {
+    return { ok: false, status: 500 as const, reason: "Missing CRON_SECRET" };
+  }
   const auth = request.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : "";
-  return token.length > 0 && token === expected;
+  if (!token || token !== expected) {
+    return { ok: false, status: 401 as const, reason: "Unauthorized" };
+  }
+  return { ok: true as const, status: 200 as const, reason: "OK" };
 }
 
 export async function GET(request: Request) {
   try {
-    if (!isAuthorized(request)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const hasSupabaseUrl = Boolean(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
+    const hasServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const auth = isAuthorized(request);
+    if (!auth.ok) {
+      const payload = {
+        error: auth.reason,
+        env: {
+          hasSupabaseUrl,
+          hasServiceRoleKey,
+          hasCronSecret: Boolean(process.env.CRON_SECRET),
+        },
+      };
+      if (auth.status === 500) console.error("[snapshots/streams] misconfigured:", payload);
+      return NextResponse.json(payload, { status: auth.status });
     }
 
     const now = Date.now();
@@ -308,65 +326,87 @@ export async function GET(request: Request) {
       total_viewers: totalViewers,
     });
 
-    await applyRollup("stream_snapshots_hourly", bucketHourStartIso(capturedAtMs), liveStreams, totalViewers);
-    await applyRollup("stream_snapshots_daily", bucketDayStartIso(capturedAtMs), liveStreams, totalViewers);
-
-    const streams = Array.isArray(streamsJson.streams) ? streamsJson.streams : [];
-    const dayStartIso = bucketDayStartIso(capturedAtMs);
-    const channels = streams
-      .map((s) => String(s.channel || "").toLowerCase())
-      .filter((c) => /^[a-z0-9_]{1,64}$/.test(c));
-
-    const uniqueChannels = Array.from(new Set(channels));
-    const existing = await getExistingStreamerDailyRows(dayStartIso, uniqueChannels);
-    const byChannel = new Map(existing.map((r) => [r.channel.toLowerCase(), r]));
-
-    const toInsert: StreamerDailyRow[] = [];
-    const toUpdate: Array<{ channel: string; patch: Partial<StreamerDailyRow> }> = [];
-
-    for (const s of streams) {
-      const channel = String(s.channel || "").toLowerCase();
-      if (!/^[a-z0-9_]{1,64}$/.test(channel)) continue;
-      const displayName = String(s.displayName || channel);
-      const profileImageUrl = String(s.profileImageUrl || "");
-      const viewerCount = Number(s.viewerCount || 0);
-      if (!Number.isFinite(viewerCount)) continue;
-
-      const existingRow = byChannel.get(channel);
-      if (!existingRow) {
-        toInsert.push({
-          day_start: dayStartIso,
-          channel,
-          display_name: displayName,
-          profile_image_url: profileImageUrl,
-          max_viewers: Math.max(0, Math.floor(viewerCount)),
-          last_seen_at: capturedAtIso,
-        });
-        continue;
-      }
-
-      const nextMax = Math.max(existingRow.max_viewers, Math.floor(viewerCount));
-      const patch: Partial<StreamerDailyRow> = {};
-      if (nextMax !== existingRow.max_viewers) patch.max_viewers = nextMax;
-      if (existingRow.last_seen_at !== capturedAtIso) patch.last_seen_at = capturedAtIso;
-      if (profileImageUrl && existingRow.profile_image_url !== profileImageUrl) patch.profile_image_url = profileImageUrl;
-      if (displayName && existingRow.display_name !== displayName) patch.display_name = displayName;
-      if (Object.keys(patch).length > 0) {
-        toUpdate.push({ channel, patch });
-      }
+    let rollupError: string | null = null;
+    try {
+      await applyRollup("stream_snapshots_hourly", bucketHourStartIso(capturedAtMs), liveStreams, totalViewers);
+      await applyRollup("stream_snapshots_daily", bucketDayStartIso(capturedAtMs), liveStreams, totalViewers);
+    } catch (e) {
+      rollupError = e instanceof Error ? e.message : "Unknown rollup error";
+      console.error("[snapshots/streams] rollup failed:", rollupError);
     }
 
-    await insertStreamerDailyRows(toInsert);
-    await Promise.allSettled(
-      toUpdate.map((u) => updateStreamerDailyRow(dayStartIso, u.channel, u.patch))
-    );
+    let streamerDailyError: string | null = null;
+    try {
+      const streams = Array.isArray(streamsJson.streams) ? streamsJson.streams : [];
+      const dayStartIso = bucketDayStartIso(capturedAtMs);
+      const channels = streams
+        .map((s) => String(s.channel || "").toLowerCase())
+        .filter((c) => /^[a-z0-9_]{1,64}$/.test(c));
+
+      const uniqueChannels = Array.from(new Set(channels));
+      const existing = await getExistingStreamerDailyRows(dayStartIso, uniqueChannels);
+      const byChannel = new Map(existing.map((r) => [r.channel.toLowerCase(), r]));
+
+      const toInsert: StreamerDailyRow[] = [];
+      const toUpdate: Array<{ channel: string; patch: Partial<StreamerDailyRow> }> = [];
+
+      for (const s of streams) {
+        const channel = String(s.channel || "").toLowerCase();
+        if (!/^[a-z0-9_]{1,64}$/.test(channel)) continue;
+        const displayName = String(s.displayName || channel);
+        const profileImageUrl = String(s.profileImageUrl || "");
+        const viewerCount = Number(s.viewerCount || 0);
+        if (!Number.isFinite(viewerCount)) continue;
+
+        const existingRow = byChannel.get(channel);
+        if (!existingRow) {
+          toInsert.push({
+            day_start: dayStartIso,
+            channel,
+            display_name: displayName,
+            profile_image_url: profileImageUrl,
+            max_viewers: Math.max(0, Math.floor(viewerCount)),
+            last_seen_at: capturedAtIso,
+          });
+          continue;
+        }
+
+        const nextMax = Math.max(existingRow.max_viewers, Math.floor(viewerCount));
+        const patch: Partial<StreamerDailyRow> = {};
+        if (nextMax !== existingRow.max_viewers) patch.max_viewers = nextMax;
+        if (existingRow.last_seen_at !== capturedAtIso) patch.last_seen_at = capturedAtIso;
+        if (profileImageUrl && existingRow.profile_image_url !== profileImageUrl) patch.profile_image_url = profileImageUrl;
+        if (displayName && existingRow.display_name !== displayName) patch.display_name = displayName;
+        if (Object.keys(patch).length > 0) {
+          toUpdate.push({ channel, patch });
+        }
+      }
+
+      await insertStreamerDailyRows(toInsert);
+      await Promise.allSettled(
+        toUpdate.map((u) => updateStreamerDailyRow(dayStartIso, u.channel, u.patch))
+      );
+    } catch (e) {
+      streamerDailyError = e instanceof Error ? e.message : "Unknown streamer daily error";
+      console.error("[snapshots/streams] streamer_daily failed:", streamerDailyError);
+    }
 
     return NextResponse.json(
-      { ok: true, capturedAt: capturedAtIso, liveStreams, totalViewers },
+      {
+        ok: true,
+        capturedAt: capturedAtIso,
+        liveStreams,
+        totalViewers,
+        warnings:
+          rollupError || streamerDailyError
+            ? { rollups: rollupError, streamerDaily: streamerDailyError }
+            : undefined,
+      },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[snapshots/streams] fatal:", message);
     return NextResponse.json({ error: message }, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
 }
