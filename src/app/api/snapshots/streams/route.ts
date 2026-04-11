@@ -1,19 +1,7 @@
 import { NextResponse } from "next/server";
+import { getStreamsPayloadOrStale, type StreamsPayload } from "../../streams/route";
 
 export const revalidate = 0;
-
-type StreamsResponse = {
-  stats?: {
-    liveStreams?: number;
-    totalViewers?: number;
-  };
-  streams?: Array<{
-    channel: string;
-    displayName: string;
-    profileImageUrl: string;
-    viewerCount: number;
-  }>;
-};
 
 type Snapshot5mRow = {
   captured_at: string;
@@ -303,21 +291,11 @@ export async function GET(request: Request) {
       );
     }
 
-    const origin = new URL(request.url);
-    origin.pathname = "/api/streams";
-    origin.search = "";
-
-    const streamsRes = await fetch(origin.toString(), { cache: "no-store" });
-    if (!streamsRes.ok) {
-      const text = await streamsRes.text();
-      throw new Error(`Failed to fetch /api/streams (${streamsRes.status}): ${text}`);
-    }
-
-    const streamsJson = (await streamsRes.json()) as StreamsResponse;
-    const liveStreams = Number(streamsJson?.stats?.liveStreams ?? 0);
-    const totalViewers = Number(streamsJson?.stats?.totalViewers ?? 0);
+    const { payload: streamsJson } = await getStreamsPayloadOrStale();
+    const liveStreams = Number(streamsJson.stats?.liveStreams ?? 0);
+    const totalViewers = Number(streamsJson.stats?.totalViewers ?? 0);
     if (!Number.isFinite(liveStreams) || !Number.isFinite(totalViewers)) {
-      throw new Error("Invalid stats returned from /api/streams");
+      throw new Error("Invalid stats returned from streams payload");
     }
 
     await insertSnapshot({
@@ -337,7 +315,7 @@ export async function GET(request: Request) {
 
     let streamerDailyError: string | null = null;
     try {
-      const streams = Array.isArray(streamsJson.streams) ? streamsJson.streams : [];
+      const streams = Array.isArray((streamsJson as StreamsPayload).streams) ? streamsJson.streams : [];
       const dayStartIso = bucketDayStartIso(capturedAtMs);
       const channels = streams
         .map((s) => String(s.channel || "").toLowerCase())

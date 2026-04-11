@@ -6,7 +6,29 @@ const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET;
 
 const STREAMS_STALE_TTL_MS = 10 * 60 * 1000;
-let lastGoodStreamsPayload: unknown = null;
+export type StreamItem = {
+  platform: 'twitch';
+  channel: string;
+  displayName: string;
+  title: string;
+  viewerCount: number;
+  thumbnailUrl: string;
+  profileImageUrl: string;
+  url: string;
+  isLive: boolean;
+  startedAt: string;
+};
+
+export type StreamsPayload = {
+  generatedAt: string;
+  stats: {
+    liveStreams: number;
+    totalViewers: number;
+  };
+  streams: StreamItem[];
+};
+
+let lastGoodStreamsPayload: StreamsPayload | null = null;
 let lastGoodStreamsAt = 0;
 
 type TwitchTokenResponse = {
@@ -120,142 +142,151 @@ async function getGameIds(token: string) {
   return Array.from(ids);
 }
 
-export async function GET() {
+async function buildStreamsPayload(): Promise<StreamsPayload> {
+  if (!TWITCH_CLIENT_ID || !TWITCH_CLIENT_SECRET) {
+    throw new Error('Missing Twitch credentials');
+  }
+
+  const token = await getTwitchToken();
+
+  const gameIds = await getGameIds(token);
+  const streamsById = new Map<string, TwitchStream>();
+
+  for (const gameId of gameIds) {
+    let cursor = '';
+
+    for (let i = 0; i < 5; i++) {
+      const url = new URL('https://api.twitch.tv/helix/streams');
+      url.searchParams.append('game_id', gameId);
+      url.searchParams.append('first', '100');
+      if (cursor) {
+        url.searchParams.append('after', cursor);
+      }
+
+      const streamsRes = await fetch(url.toString(), {
+        headers: {
+          'Client-ID': TWITCH_CLIENT_ID,
+          'Authorization': `Bearer ${token}`,
+        },
+        next: { revalidate: 60 },
+      });
+
+      if (!streamsRes.ok) break;
+
+      const streamsData = (await streamsRes.json()) as TwitchStreamsResponse;
+      const pageStreams = streamsData.data || [];
+      for (const stream of pageStreams) {
+        if (typeof stream?.id === 'string' && stream.id.length > 0) {
+          streamsById.set(stream.id, stream);
+        }
+      }
+
+      if (streamsData.pagination && streamsData.pagination.cursor) {
+        cursor = streamsData.pagination.cursor;
+      } else {
+        break;
+      }
+    }
+  }
+
+  const keizaalStreams = Array.from(streamsById.values()).filter((stream) => isKeizaalStream(stream.title));
+
+  const userIds = keizaalStreams.map((s) => s.user_id);
+  const profileImages: Record<string, string> = {};
+
+  if (userIds.length > 0) {
+    for (let i = 0; i < userIds.length; i += 100) {
+      const chunk = userIds.slice(i, i + 100);
+      const usersUrl = new URL('https://api.twitch.tv/helix/users');
+      chunk.forEach((id) => usersUrl.searchParams.append('id', id));
+
+      const usersRes = await fetch(usersUrl.toString(), {
+        headers: {
+          'Client-ID': TWITCH_CLIENT_ID,
+          'Authorization': `Bearer ${token}`,
+        },
+        next: { revalidate: 3600 },
+      });
+
+      if (usersRes.ok) {
+        const usersData = (await usersRes.json()) as TwitchUsersResponse;
+        usersData.data.forEach((u) => {
+          profileImages[u.id] = u.profile_image_url;
+        });
+      }
+    }
+  }
+
+  const formattedStreams: StreamItem[] = keizaalStreams.map((stream) => ({
+    platform: 'twitch',
+    channel: stream.user_login,
+    displayName: stream.user_name,
+    title: stream.title,
+    viewerCount: stream.viewer_count,
+    thumbnailUrl: stream.thumbnail_url.replace('{width}', '800').replace('{height}', '450'),
+    profileImageUrl: profileImages[stream.user_id] || '',
+    url: `https://twitch.tv/${stream.user_login}`,
+    isLive: stream.type === 'live',
+    startedAt: stream.started_at,
+  }));
+
+  formattedStreams.sort((a, b) => b.viewerCount - a.viewerCount);
+
+  const teeweeIndex = formattedStreams.findIndex((s) => s.channel.toLowerCase() === 'its_teewee');
+  if (teeweeIndex > 0) {
+    const teewee = formattedStreams.splice(teeweeIndex, 1)[0];
+    formattedStreams.splice(1, 0, teewee);
+  }
+
+  const totalViewers = formattedStreams.reduce((acc, s) => acc + s.viewerCount, 0);
+
+  const generatedAt = new Date().toISOString();
+  return {
+    generatedAt,
+    stats: {
+      liveStreams: formattedStreams.length,
+      totalViewers,
+    },
+    streams: formattedStreams,
+  };
+}
+
+export async function getStreamsPayloadOrStale(): Promise<{ payload: StreamsPayload; cache: 'miss' | 'stale' }> {
   try {
-    if (!TWITCH_CLIENT_ID || !TWITCH_CLIENT_SECRET) {
-      throw new Error('Missing Twitch credentials');
-    }
-
-    const token = await getTwitchToken();
-
-    const gameIds = await getGameIds(token);
-    const streamsById = new Map<string, TwitchStream>();
-
-    for (const gameId of gameIds) {
-      let cursor = '';
-
-      for (let i = 0; i < 5; i++) {
-        const url = new URL('https://api.twitch.tv/helix/streams');
-        url.searchParams.append('game_id', gameId);
-        url.searchParams.append('first', '100');
-        if (cursor) {
-          url.searchParams.append('after', cursor);
-        }
-
-        const streamsRes = await fetch(url.toString(), {
-          headers: {
-            'Client-ID': TWITCH_CLIENT_ID,
-            'Authorization': `Bearer ${token}`,
-          },
-          next: { revalidate: 60 },
-        });
-
-        if (!streamsRes.ok) break;
-
-        const streamsData = (await streamsRes.json()) as TwitchStreamsResponse;
-        const pageStreams = streamsData.data || [];
-        for (const stream of pageStreams) {
-          if (typeof stream?.id === 'string' && stream.id.length > 0) {
-            streamsById.set(stream.id, stream);
-          }
-        }
-
-        if (streamsData.pagination && streamsData.pagination.cursor) {
-          cursor = streamsData.pagination.cursor;
-        } else {
-          break;
-        }
-      }
-    }
-
-    // Filter by Keizaal terms
-    const keizaalStreams = Array.from(streamsById.values()).filter(stream => isKeizaalStream(stream.title));
-
-    // Get user profile images
-    const userIds = keizaalStreams.map(s => s.user_id);
-    const profileImages: Record<string, string> = {};
-
-    if (userIds.length > 0) {
-      for (let i = 0; i < userIds.length; i += 100) {
-        const chunk = userIds.slice(i, i + 100);
-        const usersUrl = new URL('https://api.twitch.tv/helix/users');
-        chunk.forEach(id => usersUrl.searchParams.append('id', id));
-        
-        const usersRes = await fetch(usersUrl.toString(), {
-          headers: {
-            'Client-ID': TWITCH_CLIENT_ID,
-            'Authorization': `Bearer ${token}`
-          },
-          next: { revalidate: 3600 }
-        });
-
-        if (usersRes.ok) {
-          const usersData = (await usersRes.json()) as TwitchUsersResponse;
-          usersData.data.forEach((u) => {
-            profileImages[u.id] = u.profile_image_url;
-          });
-        }
-      }
-    }
-
-    const formattedStreams = keizaalStreams.map(stream => ({
-      platform: 'twitch',
-      channel: stream.user_login,
-      displayName: stream.user_name,
-      title: stream.title,
-      viewerCount: stream.viewer_count,
-      thumbnailUrl: stream.thumbnail_url.replace('{width}', '800').replace('{height}', '450'),
-      profileImageUrl: profileImages[stream.user_id] || '',
-      url: `https://twitch.tv/${stream.user_login}`,
-      isLive: stream.type === 'live',
-      startedAt: stream.started_at
-    }));
-
-    formattedStreams.sort((a, b) => b.viewerCount - a.viewerCount);
-
-    const teeweeIndex = formattedStreams.findIndex(s => s.channel.toLowerCase() === 'its_teewee');
-    if (teeweeIndex > 0) {
-      const teewee = formattedStreams.splice(teeweeIndex, 1)[0];
-      formattedStreams.splice(1, 0, teewee);
-    }
-
-    const totalViewers = formattedStreams.reduce((acc, s) => acc + s.viewerCount, 0);
-
-    const generatedAt = new Date().toISOString();
-    const payload = {
-      generatedAt,
-      stats: {
-        liveStreams: formattedStreams.length,
-        totalViewers,
-      },
-      streams: formattedStreams,
-    };
-
+    const payload = await buildStreamsPayload();
     lastGoodStreamsPayload = payload;
     lastGoodStreamsAt = Date.now();
+    return { payload, cache: 'miss' };
+  } catch (error: unknown) {
+    const fallback = lastGoodStreamsPayload;
+    if (fallback && Date.now() - lastGoodStreamsAt < STREAMS_STALE_TTL_MS) {
+      return { payload: fallback, cache: 'stale' };
+    }
+    throw error;
+  }
+}
+
+export async function GET() {
+  try {
+    const { payload, cache } = await getStreamsPayloadOrStale();
 
     const response = NextResponse.json(payload);
-    response.headers.set('X-Keizaal-Cache', 'miss');
+    response.headers.set('X-Keizaal-Cache', cache);
 
-    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
-    response.headers.set('CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
-    response.headers.set('Vercel-CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
+    if (cache === 'miss') {
+      response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
+      response.headers.set('CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
+      response.headers.set('Vercel-CDN-Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
+    } else {
+      response.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=30');
+      response.headers.set('CDN-Cache-Control', 'public, s-maxage=30, stale-while-revalidate=30');
+      response.headers.set('Vercel-CDN-Cache-Control', 'public, s-maxage=30, stale-while-revalidate=30');
+    }
 
     return response;
 
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    const hasFreshFallback =
-      lastGoodStreamsPayload && Date.now() - lastGoodStreamsAt < STREAMS_STALE_TTL_MS;
-    if (hasFreshFallback) {
-      const response = NextResponse.json(lastGoodStreamsPayload);
-      response.headers.set('X-Keizaal-Cache', 'stale');
-      response.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=30');
-      response.headers.set('CDN-Cache-Control', 'public, s-maxage=30, stale-while-revalidate=30');
-      response.headers.set('Vercel-CDN-Cache-Control', 'public, s-maxage=30, stale-while-revalidate=30');
-      return response;
-    }
-
     const response = NextResponse.json({ error: message }, { status: 500 });
     response.headers.set('X-Keizaal-Cache', 'error');
     response.headers.set('Cache-Control', 'no-store');
