@@ -38,17 +38,27 @@ export default function Home() {
     if (isRefresh) setRefreshing(true);
     try {
       const res = await fetch("/api/streams", {
-        cache: "no-store",
+        cache: "no-store", // Force Next.js to re-fetch on client
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to fetch");
+      
       setData(json);
+
+      // Update document title dynamically
+      if (json.stats) {
+        const viewers = json.stats.totalViewers >= 1000 
+          ? (json.stats.totalViewers / 1000).toFixed(1) + 'K' 
+          : json.stats.totalViewers.toLocaleString();
+          
+        document.title = `${json.stats.liveStreams} Live Keizaal RP Streams - ${viewers} Viewers | Keizaal Live`;
+      }
     } catch (err) {
       setData({
         generatedAt: new Date().toISOString(),
         stats: { liveStreams: 0, totalViewers: 0 },
         streams: [],
-        error: err instanceof Error ? err.message : "Failed to fetch",
+        error: err instanceof Error ? err.message : "Failed to fetch streams"
       });
     } finally {
       setLoading(false);
