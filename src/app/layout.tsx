@@ -22,19 +22,30 @@ const cinzel = Cinzel({
 export const metadata: Metadata = {
   metadataBase: new URL("https://keizaal.live"),
   title: {
-    default: "Keizaal Live Streams | Skyrim Roleplay Directory",
+    default: "Keizaal Live | Keizaal RP Skyrim Twitch Streams & Stats",
     template: "%s | Keizaal Live"
   },
-  description: "Discover live streams of The Elder Scrolls V: Skyrim on the Keizaal roleplay server. See who is live, check viewer counts, and jump into the best Skyrim RP action on Twitch.",
+  description: "Live Twitch directory for Keizaal RP (Skyrim roleplay). See who's live now, fastest growing streams, top streamers by peak viewers, and viewer/stream stats over time.",
   icons: {
     icon: [{ url: "/logo.png", type: "image/png" }],
     shortcut: [{ url: "/logo.png", type: "image/png" }],
     apple: [{ url: "/logo.png", type: "image/png" }],
   },
   keywords: [
-    "Keizaal", "Keizaal RP", "Skyrim RP", "Skyrim Roleplay", 
-    "Keizaal Online", "Elder Scrolls V", "Twitch Directory", 
-    "Live Streams", "Skyrim Multiplayer"
+    "Keizaal",
+    "Keizaal RP",
+    "Keizaal roleplay",
+    "Keizaal Online",
+    "Skyrim RP",
+    "Skyrim roleplay",
+    "Skyrim RP Twitch",
+    "Skyrim Twitch streams",
+    "Keizaal Twitch streams",
+    "Roleplay Twitch streams",
+    "The Elder Scrolls V: Skyrim",
+    "Twitch directory",
+    "Live streams",
+    "Stream stats",
   ],
   authors: [{ name: "teewee", url: "https://twitch.tv/its_teewee" }],
   creator: "teewee",
