@@ -120,17 +120,15 @@ function computeStats(valuesAvg: Array<number | null>, valuesPeak: Array<number 
   return { avg, peak, min, samples: avgValues.length };
 }
 
-function buildPath(values: Array<number | null>, width: number, height: number, padding: number) {
+function buildPath(values: Array<number | null>, width: number, height: number, padding: number, yMax: number) {
   const n = values.length;
   if (n === 0) return "";
-  const numeric = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-  const max = Math.max(0, ...numeric);
   const min = 0;
   const plotW = width - padding * 2;
   const plotH = height - padding * 2;
-  const denom = max - min || 1;
+  const denom = yMax - min || 1;
   const xAt = (i: number) => padding + (plotW * i) / Math.max(1, n - 1);
-  const yAt = (v: number) => padding + (plotH * (max - v)) / denom;
+  const yAt = (v: number) => padding + (plotH * (yMax - v)) / denom;
 
   let d = "";
   let started = false;
@@ -191,14 +189,25 @@ function Chart({
   const height = 240;
   const padding = 28;
 
+  const isPeakSameAsAvg = useMemo(() => {
+    if (valuesAvg.length !== valuesPeak.length) return false;
+    for (let i = 0; i < valuesAvg.length; i++) {
+      const a = valuesAvg[i];
+      const p = valuesPeak[i];
+      if (a === null || p === null) {
+        if (a !== p) return false;
+        continue;
+      }
+      if (!Number.isFinite(a) || !Number.isFinite(p)) return false;
+      if (Math.abs(a - p) > 1e-9) return false;
+    }
+    return true;
+  }, [valuesAvg, valuesPeak]);
+
   const avgForLine = useMemo(() => {
     if (!smoothingEnabled) return valuesAvg;
     return movingAverage(valuesAvg, smoothingWindow);
   }, [smoothingEnabled, smoothingWindow, valuesAvg]);
-
-  const dAvg = useMemo(() => buildPath(avgForLine, width, height, padding), [avgForLine]);
-  const dPeak = useMemo(() => buildPath(valuesPeak, width, height, padding), [valuesPeak]);
-  const dPrev = useMemo(() => (valuesPrevAvg ? buildPath(valuesPrevAvg, width, height, padding) : ""), [valuesPrevAvg]);
 
   const maxY = useMemo(() => {
     const numeric = [
@@ -208,6 +217,13 @@ function Chart({
     ];
     return Math.max(0, ...numeric);
   }, [valuesAvg, valuesPeak, valuesPrevAvg]);
+
+  const dAvg = useMemo(() => buildPath(avgForLine, width, height, padding, maxY), [avgForLine, maxY]);
+  const dPeak = useMemo(() => buildPath(valuesPeak, width, height, padding, maxY), [valuesPeak, maxY]);
+  const dPrev = useMemo(
+    () => (valuesPrevAvg ? buildPath(valuesPrevAvg, width, height, padding, maxY) : ""),
+    [valuesPrevAvg, maxY]
+  );
 
   const gridLines = 4;
   const yTicks = Array.from({ length: gridLines + 1 }, (_, i) => (maxY * i) / gridLines).reverse();
@@ -230,8 +246,8 @@ function Chart({
             Avg
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-violet-400" />
-            Peak
+            <span className={`w-2 h-2 rounded-full ${isPeakSameAsAvg ? "bg-zinc-500" : "bg-violet-400"}`} />
+            Peak{isPeakSameAsAvg ? " (same)" : ""}
           </span>
           {valuesPrevAvg ? (
             <span className="inline-flex items-center gap-1.5">
@@ -281,7 +297,9 @@ function Chart({
             <path d={dPrev} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="2" strokeDasharray="6 6" />
           ) : null}
           {dAvg ? <path d={dAvg} fill="none" stroke="rgba(34,121,97,0.95)" strokeWidth="4" /> : null}
-          {dPeak ? <path d={dPeak} fill="none" stroke="rgba(185,142,255,0.9)" strokeWidth="2" /> : null}
+          {!isPeakSameAsAvg && dPeak ? (
+            <path d={dPeak} fill="none" stroke="rgba(185,142,255,0.9)" strokeWidth="2" strokeDasharray="4 4" />
+          ) : null}
 
           {markerX !== null ? (
             <line x1={markerX} y1={padding} x2={markerX} y2={height - padding} stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
@@ -294,7 +312,7 @@ function Chart({
 
 export default function StatsPage() {
   const [range, setRange] = useState<RangeKey>("7d");
-  const [smoothingEnabled] = useState(true);
+  const [smoothingEnabled] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
