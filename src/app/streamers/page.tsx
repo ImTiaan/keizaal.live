@@ -259,10 +259,8 @@ export default function StreamersPage() {
                         <td className="px-4 py-3 text-zinc-500 tabular-nums">{(page - 1) * pageSize + idx + 1}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
-                            <a
-                              href={`https://twitch.tv/${row.channel}`}
-                              target="_blank"
-                              rel="noreferrer"
+                            <Link
+                              href={`/streamers/${row.channel}`}
                               onClick={() =>
                                 track("Streamer_Open", { source: "streamers_leaderboard", channel: row.channel, range })
                               }
@@ -278,19 +276,17 @@ export default function StreamersPage() {
                               ) : (
                                 <div className="w-7 h-7 rounded-full bg-zinc-800" />
                               )}
-                            </a>
+                            </Link>
                             <div className="min-w-0">
-                              <a
-                                href={`https://twitch.tv/${row.channel}`}
-                                target="_blank"
-                                rel="noreferrer"
+                              <Link
+                                href={`/streamers/${row.channel}`}
                                 className="font-semibold text-zinc-200 hover:text-white transition-colors truncate block"
                                 onClick={() =>
                                   track("Streamer_Open", { source: "streamers_leaderboard", channel: row.channel, range })
                                 }
                               >
                                 {row.displayName}
-                              </a>
+                              </Link>
                               <div className="text-xs text-zinc-500 truncate">{row.channel}</div>
                             </div>
                           </div>

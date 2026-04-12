@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { RefreshCw, Users, Radio, Info, ChevronDown, ChevronUp, Play, Pause, Flame, Clock } from "lucide-react";
+import { RefreshCw, Users, Radio, Info, ChevronDown, ChevronUp, Play, Pause, Flame, Clock, TrendingUp } from "lucide-react";
 import { track } from "@vercel/analytics";
 
 interface Stream {
@@ -31,8 +31,21 @@ interface StreamsResponse {
   error?: string;
 }
 
+interface FeaturedCard {
+  stream: Stream;
+  deltaViewers5m: number;
+}
+
+interface FeaturedResponse {
+  generatedAt: string;
+  title: "Featured" | "Going Viral";
+  cards: FeaturedCard[];
+  error?: string;
+}
+
 export default function Home() {
   const [data, setData] = useState<StreamsResponse | null>(null);
+  const [featured, setFeatured] = useState<FeaturedResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showHowTo, setShowHowTo] = useState(false);
@@ -96,13 +109,26 @@ export default function Home() {
     if (isRefresh) setRefreshing(true);
     setErrorMessage(null);
     try {
-      const res = await fetch("/api/streams", {
-        cache: "no-store",
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to fetch");
+      const [streamsRes, featuredRes] = await Promise.all([
+        fetch("/api/streams", { cache: "no-store" }),
+        fetch("/api/featured-streams", { cache: "no-store" }),
+      ]);
 
-      const nextData = json as StreamsResponse;
+      const streamsJson = (await streamsRes.json()) as StreamsResponse;
+      if (!streamsRes.ok) throw new Error(streamsJson.error || "Failed to fetch");
+
+      try {
+        const featuredJson = (await featuredRes.json()) as FeaturedResponse;
+        if (featuredRes.ok && Array.isArray(featuredJson.cards)) {
+          setFeatured(featuredJson);
+        } else {
+          setFeatured(null);
+        }
+      } catch {
+        setFeatured(null);
+      }
+
+      const nextData = streamsJson as StreamsResponse;
 
       setData(nextData);
       lastGoodDataRef.current = nextData;
@@ -291,6 +317,104 @@ export default function Home() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-grow flex flex-col">
+        {featured?.cards && featured.cards.length > 0 && data?.streams && data.streams.length > 0 ? (
+          <section className="mb-10">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h2 className="text-lg font-bold tracking-wider text-zinc-200 uppercase">{featured.title}</h2>
+              <div className="text-xs text-zinc-500">{featured.generatedAt ? `Updated ${formatTimeAgo(featured.generatedAt)}` : null}</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {featured.cards.slice(0, 3).map((card) => {
+                const stream = card.stream;
+                const delta = Math.max(0, Math.floor(card.deltaViewers5m || 0));
+                const deltaText = delta > 0 ? `+${delta.toLocaleString()} (5m)` : null;
+                return (
+                  <a
+                    key={`featured-${stream.channel}`}
+                    href={stream.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group flex flex-col bg-keizaal-card rounded-xl overflow-hidden border border-zinc-800/50 hover:border-zinc-700 transition-all hover:-translate-y-1 hover:shadow-2xl hover:shadow-keizaal-accent/10"
+                    onClick={() =>
+                      track("Stream_Open", {
+                        source: "featured_section",
+                        channel: stream.channel,
+                        viewers: stream.viewerCount,
+                        delta5m: delta,
+                        section: featured.title,
+                      })
+                    }
+                  >
+                    <div className="relative aspect-video bg-zinc-900">
+                      {stream.thumbnailUrl ? (
+                        <Image
+                          src={withCacheBuster(stream.thumbnailUrl)}
+                          alt={stream.title}
+                          fill
+                          sizes="(min-width: 1024px) 33vw, 100vw"
+                          className="object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                      ) : null}
+                      <div className="absolute top-3 left-3 flex flex-col gap-2 items-start">
+                        <span className="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+                          Live
+                        </span>
+                        {deltaText ? (
+                          <span className="bg-keizaal-accent text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
+                            <TrendingUp className="w-3 h-3" />
+                            {deltaText}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="absolute bottom-3 left-3">
+                        <span className="bg-black/60 backdrop-blur-md text-white text-xs font-semibold px-2 py-1 rounded shadow-md flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5" />
+                          {stream.viewerCount.toLocaleString()}
+                        </span>
+                      </div>
+                      {stream.startedAt ? (
+                        <div className="absolute bottom-3 right-3">
+                          <span className="bg-black/60 backdrop-blur-md text-white text-xs font-semibold px-2 py-1 rounded shadow-md flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5" />
+                            {formatUptime(stream.startedAt)}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="p-4 flex gap-3">
+                      <div className="flex-shrink-0">
+                        {stream.profileImageUrl ? (
+                          <Image
+                            src={stream.profileImageUrl}
+                            alt={stream.displayName}
+                            width={40}
+                            height={40}
+                            className="rounded-full ring-2 ring-zinc-800"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-zinc-800" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3
+                          className="font-bold text-white truncate group-hover:text-keizaal-accent transition-colors"
+                          title={stream.displayName}
+                        >
+                          {stream.displayName}
+                        </h3>
+                        <p className="text-sm text-zinc-400 line-clamp-2 mt-0.5 leading-snug" title={stream.title}>
+                          {stream.title}
+                        </p>
+                      </div>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         {loading && !data ? (
           <div className="flex-grow flex items-center justify-center">
             <RefreshCw className="w-8 h-8 animate-spin text-keizaal-accent" />

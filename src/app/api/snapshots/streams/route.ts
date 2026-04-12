@@ -39,6 +39,15 @@ type StreamerSessionRow = {
   last_seen_at: string;
 };
 
+type StreamerPresenceRow = {
+  captured_at: string;
+  channel: string;
+  started_at: string;
+  viewer_count: number;
+  display_name: string;
+  profile_image_url: string;
+};
+
 function assertEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing ${name}`);
@@ -121,6 +130,21 @@ async function insertSnapshot(row: Snapshot5mRow) {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Supabase snapshot insert failed (${res.status}): ${text}`);
+  }
+}
+
+async function insertStreamerPresenceRows(rows: StreamerPresenceRow[]) {
+  if (rows.length === 0) return;
+  const res = await supabaseFetch(`/rest/v1/streamer_presence_5m?on_conflict=captured_at,channel`, {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase streamer_presence_5m insert failed (${res.status}): ${text}`);
   }
 }
 
@@ -352,14 +376,6 @@ export async function GET(request: Request) {
     const capturedAtMs = roundDownToMs(now, 5 * 60 * 1000);
     const capturedAtIso = toIso(capturedAtMs);
 
-    const alreadyExists = await getExistingSnapshot(capturedAtIso);
-    if (alreadyExists) {
-      return NextResponse.json(
-        { ok: true, capturedAt: capturedAtIso, skipped: true },
-        { headers: { "Cache-Control": "no-store" } }
-      );
-    }
-
     const { payload: streamsJson } = await getStreamsPayloadOrStale();
     const liveStreams = Number(streamsJson.stats?.liveStreams ?? 0);
     const totalViewers = Number(streamsJson.stats?.totalViewers ?? 0);
@@ -367,19 +383,50 @@ export async function GET(request: Request) {
       throw new Error("Invalid stats returned from streams payload");
     }
 
-    await insertSnapshot({
-      captured_at: capturedAtIso,
-      live_streams: liveStreams,
-      total_viewers: totalViewers,
-    });
+    const snapshotExists = await getExistingSnapshot(capturedAtIso);
+    if (!snapshotExists) {
+      await insertSnapshot({
+        captured_at: capturedAtIso,
+        live_streams: liveStreams,
+        total_viewers: totalViewers,
+      });
+    }
 
     let rollupError: string | null = null;
     try {
-      await applyRollup("stream_snapshots_hourly", bucketHourStartIso(capturedAtMs), liveStreams, totalViewers);
-      await applyRollup("stream_snapshots_daily", bucketDayStartIso(capturedAtMs), liveStreams, totalViewers);
+      if (!snapshotExists) {
+        await applyRollup("stream_snapshots_hourly", bucketHourStartIso(capturedAtMs), liveStreams, totalViewers);
+        await applyRollup("stream_snapshots_daily", bucketDayStartIso(capturedAtMs), liveStreams, totalViewers);
+      }
     } catch (e) {
       rollupError = e instanceof Error ? e.message : "Unknown rollup error";
       console.error("[snapshots/streams] rollup failed:", rollupError);
+    }
+
+    let presenceError: string | null = null;
+    try {
+      const streams = Array.isArray((streamsJson as StreamsPayload).streams) ? streamsJson.streams : [];
+      const presenceRows: StreamerPresenceRow[] = [];
+      for (const s of streams) {
+        const channel = String(s.channel || "").toLowerCase();
+        if (!/^[a-z0-9_]{1,64}$/.test(channel)) continue;
+        const startedAtIso = safeToIso(String(s.startedAt || ""));
+        if (!startedAtIso) continue;
+        const viewerCount = Number(s.viewerCount || 0);
+        if (!Number.isFinite(viewerCount)) continue;
+        presenceRows.push({
+          captured_at: capturedAtIso,
+          channel,
+          started_at: startedAtIso,
+          viewer_count: Math.max(0, Math.floor(viewerCount)),
+          display_name: String(s.displayName || channel),
+          profile_image_url: String(s.profileImageUrl || ""),
+        });
+      }
+      await insertStreamerPresenceRows(presenceRows);
+    } catch (e) {
+      presenceError = e instanceof Error ? e.message : "Unknown presence error";
+      console.error("[snapshots/streams] streamer_presence_5m failed:", presenceError);
     }
 
     let streamerDailyError: string | null = null;
@@ -514,11 +561,17 @@ export async function GET(request: Request) {
       {
         ok: true,
         capturedAt: capturedAtIso,
+        snapshot: snapshotExists ? "skipped" : "inserted",
         liveStreams,
         totalViewers,
         warnings:
-          rollupError || streamerDailyError || streamerSessionsError
-            ? { rollups: rollupError, streamerDaily: streamerDailyError, streamerSessions: streamerSessionsError }
+          rollupError || presenceError || streamerDailyError || streamerSessionsError
+            ? {
+                rollups: rollupError,
+                presence: presenceError,
+                streamerDaily: streamerDailyError,
+                streamerSessions: streamerSessionsError,
+              }
             : undefined,
       },
       { headers: { "Cache-Control": "no-store" } }
