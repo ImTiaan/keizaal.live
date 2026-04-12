@@ -133,6 +133,21 @@ export default function StreamerProfilePage() {
     if (pts.length < 2) return "";
     return buildPath(pts, 860, 160, 16);
   }, [data?.presence24h]);
+  const presenceStats = useMemo(() => {
+    const pts = data?.presence24h || [];
+    if (pts.length === 0) return null;
+    const values = pts.map((p) => Number(p.v)).filter((v) => Number.isFinite(v));
+    if (values.length === 0) return null;
+    const latest = values[values.length - 1];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return {
+      latest,
+      min,
+      max,
+      samples: pts.length,
+    };
+  }, [data?.presence24h]);
 
   return (
     <main className="min-h-screen bg-keizaal-bg text-zinc-100 flex flex-col font-sans">
@@ -306,7 +321,19 @@ export default function StreamerProfilePage() {
               <Users className="w-4 h-4 text-zinc-400" />
               <div className="text-sm font-semibold text-zinc-200">Viewers (last 24h)</div>
             </div>
-            <div className="text-xs text-zinc-500">{data?.presence24h?.length ? `${data.presence24h.length} points` : ""}</div>
+            <div className="text-xs text-zinc-500 tabular-nums">
+              {presenceStats ? (
+                <span className="text-zinc-400">
+                  Latest{" "}
+                  <span className="text-zinc-200">{presenceStats.latest.toLocaleString()}</span>
+                  {" \u2022 "}Min{" "}
+                  <span className="text-zinc-200">{presenceStats.min.toLocaleString()}</span>
+                  {" \u2022 "}Max{" "}
+                  <span className="text-zinc-200">{presenceStats.max.toLocaleString()}</span>
+                  <span className="text-zinc-600">{" \u2022 "}{presenceStats.samples} samples</span>
+                </span>
+              ) : null}
+            </div>
           </div>
           {loading ? (
             <div className="p-5 animate-pulse">
@@ -372,4 +399,3 @@ export default function StreamerProfilePage() {
     </main>
   );
 }
-
