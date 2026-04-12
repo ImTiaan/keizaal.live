@@ -4,12 +4,13 @@ export const revalidate = 0;
 
 type RangeKey = "all" | "24h" | "7d" | "30d" | "90d" | "365d";
 
-type StreamerDailyRow = {
-  day_start: string;
+type StreamerSessionRow = {
   channel: string;
+  started_at: string;
   display_name: string;
   profile_image_url: string;
   max_viewers: number;
+  first_seen_at: string;
   last_seen_at: string;
 };
 
@@ -17,7 +18,7 @@ type LeaderboardRow = {
   channel: string;
   displayName: string;
   profileImageUrl: string;
-  daysStreamed: number;
+  streams: number;
   maxViewers: number;
 };
 
@@ -53,10 +54,8 @@ function rangeToDays(range: RangeKey) {
   return 365;
 }
 
-function dayStartIsoFromMs(ms: number) {
-  const d = new Date(ms);
-  const dayMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0);
-  return new Date(dayMs).toISOString();
+function nowIso() {
+  return new Date().toISOString();
 }
 
 async function supabaseFetch(path: string, init?: RequestInit) {
@@ -76,49 +75,49 @@ async function supabaseFetch(path: string, init?: RequestInit) {
   return res;
 }
 
-async function fetchAllDailyRows(startIso: string, endIso: string) {
-  const rows: StreamerDailyRow[] = [];
+async function fetchAllSessionsOverlapping(startIso: string, endIso: string) {
+  const rows: StreamerSessionRow[] = [];
   const pageSize = 1000;
   for (let offset = 0; offset < 100_000; offset += pageSize) {
     const qs = new URLSearchParams({
-      select: "day_start,channel,display_name,profile_image_url,max_viewers,last_seen_at",
-      order: "day_start.asc",
+      select: "channel,started_at,display_name,profile_image_url,max_viewers,first_seen_at,last_seen_at",
+      order: "last_seen_at.asc",
       limit: String(pageSize),
       offset: String(offset),
     });
-    qs.append("day_start", `gte.${startIso}`);
-    qs.append("day_start", `lte.${endIso}`);
-    const res = await supabaseFetch(`/rest/v1/streamer_daily?${qs.toString()}`, {
+    qs.append("last_seen_at", `gte.${startIso}`);
+    qs.append("started_at", `lte.${endIso}`);
+    const res = await supabaseFetch(`/rest/v1/streamer_sessions?${qs.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Supabase streamer_daily query failed (${res.status}): ${text}`);
+      throw new Error(`Supabase streamer_sessions query failed (${res.status}): ${text}`);
     }
-    const page = (await res.json()) as StreamerDailyRow[];
+    const page = (await res.json()) as StreamerSessionRow[];
     rows.push(...page);
     if (page.length < pageSize) break;
   }
   return rows;
 }
 
-async function fetchEarliestDayStart() {
+async function fetchEarliestSessionStart() {
   const qs = new URLSearchParams({
-    select: "day_start",
-    order: "day_start.asc",
+    select: "started_at",
+    order: "started_at.asc",
     limit: "1",
   });
-  const res = await supabaseFetch(`/rest/v1/streamer_daily?${qs.toString()}`, {
+  const res = await supabaseFetch(`/rest/v1/streamer_sessions?${qs.toString()}`, {
     method: "GET",
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Supabase streamer_daily earliest query failed (${res.status}): ${text}`);
+    throw new Error(`Supabase streamer_sessions earliest query failed (${res.status}): ${text}`);
   }
-  const json = (await res.json()) as Array<{ day_start: string }>;
-  const first = json[0]?.day_start;
+  const json = (await res.json()) as Array<{ started_at: string }>;
+  const first = json[0]?.started_at;
   if (!first) return null;
   return new Date(first).toISOString();
 }
@@ -128,33 +127,33 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const range = parseRange(url.searchParams.get("range"));
 
-    const endIso = dayStartIsoFromMs(Date.now());
+    const endIso = nowIso();
     const startIso =
       range === "all"
-        ? ((await fetchEarliestDayStart()) ?? endIso)
-        : dayStartIsoFromMs(Date.now() - (rangeToDays(range) - 1) * 24 * 60 * 60 * 1000);
+        ? ((await fetchEarliestSessionStart()) ?? endIso)
+        : new Date(Date.now() - rangeToDays(range) * 24 * 60 * 60 * 1000).toISOString();
 
-    const rows = await fetchAllDailyRows(startIso, endIso);
+    const rows = await fetchAllSessionsOverlapping(startIso, endIso);
 
     const byChannel = new Map<
       string,
-      { channel: string; days: number; max: number; lastSeenAtMs: number; displayName: string; profileImageUrl: string }
+      { channel: string; streams: number; max: number; lastSeenAtMs: number; displayName: string; profileImageUrl: string }
     >();
 
     for (const row of rows) {
       const channel = String(row.channel || "").toLowerCase();
       if (!/^[a-z0-9_]{1,64}$/.test(channel)) continue;
-      const daysKey = channel;
-      const existing = byChannel.get(daysKey);
+      const key = channel;
+      const existing = byChannel.get(key);
       const lastSeenAtMs = new Date(row.last_seen_at).getTime();
       const max = Number(row.max_viewers) || 0;
       const displayName = String(row.display_name || channel);
       const profileImageUrl = String(row.profile_image_url || "");
 
       if (!existing) {
-        byChannel.set(daysKey, {
+        byChannel.set(key, {
           channel,
-          days: 1,
+          streams: 1,
           max,
           lastSeenAtMs,
           displayName,
@@ -163,7 +162,7 @@ export async function GET(request: Request) {
         continue;
       }
 
-      existing.days += 1;
+      existing.streams += 1;
       existing.max = Math.max(existing.max, max);
       if (lastSeenAtMs >= existing.lastSeenAtMs) {
         existing.lastSeenAtMs = lastSeenAtMs;
@@ -177,11 +176,11 @@ export async function GET(request: Request) {
         channel: v.channel,
         displayName: v.displayName,
         profileImageUrl: v.profileImageUrl,
-        daysStreamed: v.days,
+        streams: v.streams,
         maxViewers: v.max,
       }))
       .sort((a, b) => {
-        if (b.daysStreamed !== a.daysStreamed) return b.daysStreamed - a.daysStreamed;
+        if (b.streams !== a.streams) return b.streams - a.streams;
         if (b.maxViewers !== a.maxViewers) return b.maxViewers - a.maxViewers;
         return a.displayName.localeCompare(b.displayName);
       })

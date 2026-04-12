@@ -29,6 +29,16 @@ type StreamerDailyRow = {
   last_seen_at: string;
 };
 
+type StreamerSessionRow = {
+  channel: string;
+  started_at: string;
+  display_name: string;
+  profile_image_url: string;
+  max_viewers: number;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
 function assertEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing ${name}`);
@@ -53,6 +63,12 @@ function bucketDayStartIso(epochMs: number) {
   const d = new Date(epochMs);
   const ms = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0);
   return toIso(ms);
+}
+
+function safeToIso(value: string) {
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString();
 }
 
 function getSupabaseUrl() {
@@ -248,6 +264,59 @@ async function updateStreamerDailyRow(dayStartIso: string, channel: string, patc
   }
 }
 
+async function getExistingStreamerSessionRows(items: Array<{ channel: string; startedAtIso: string }>) {
+  if (items.length === 0) return [] as StreamerSessionRow[];
+  const or = items
+    .map((it) => `and(channel.eq.${it.channel},started_at.eq.${it.startedAtIso})`)
+    .join(",");
+  const qs = new URLSearchParams({
+    select: "channel,started_at,display_name,profile_image_url,max_viewers,first_seen_at,last_seen_at",
+  });
+  qs.append("or", `(${or})`);
+
+  const res = await supabaseFetch(`/rest/v1/streamer_sessions?${qs.toString()}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase streamer_sessions lookup failed (${res.status}): ${text}`);
+  }
+  return (await res.json()) as StreamerSessionRow[];
+}
+
+async function insertStreamerSessionRows(rows: StreamerSessionRow[]) {
+  if (rows.length === 0) return;
+  const res = await supabaseFetch(`/rest/v1/streamer_sessions?on_conflict=channel,started_at`, {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase streamer_sessions insert failed (${res.status}): ${text}`);
+  }
+}
+
+async function updateStreamerSessionRow(channel: string, startedAtIso: string, patch: Partial<StreamerSessionRow>) {
+  const qs = new URLSearchParams();
+  qs.append("channel", `eq.${channel}`);
+  qs.append("started_at", `eq.${startedAtIso}`);
+  const res = await supabaseFetch(`/rest/v1/streamer_sessions?${qs.toString()}`, {
+    method: "PATCH",
+    headers: {
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase streamer_sessions update failed (${res.status}): ${text}`);
+  }
+}
+
 function isAuthorized(request: Request) {
   const expected = process.env.CRON_SECRET;
   if (!expected) {
@@ -369,6 +438,78 @@ export async function GET(request: Request) {
       console.error("[snapshots/streams] streamer_daily failed:", streamerDailyError);
     }
 
+    let streamerSessionsError: string | null = null;
+    try {
+      const streams = Array.isArray((streamsJson as StreamsPayload).streams) ? streamsJson.streams : [];
+      const sessionItems = streams
+        .map((s) => ({
+          channel: String(s.channel || "").toLowerCase(),
+          startedAtIso: safeToIso(String(s.startedAt || "")),
+        }))
+        .filter((it) => /^[a-z0-9_]{1,64}$/.test(it.channel) && Boolean(it.startedAtIso));
+
+      const uniqueKey = new Set<string>();
+      const uniqueItems = sessionItems.filter((it) => {
+        const k = `${it.channel}|${it.startedAtIso}`;
+        if (uniqueKey.has(k)) return false;
+        uniqueKey.add(k);
+        return true;
+      });
+
+      const existing = await getExistingStreamerSessionRows(
+        uniqueItems.map((it) => ({ channel: it.channel, startedAtIso: it.startedAtIso! }))
+      );
+      const byKey = new Map(existing.map((r) => [`${r.channel.toLowerCase()}|${new Date(r.started_at).toISOString()}`, r]));
+
+      const toInsert: StreamerSessionRow[] = [];
+      const toUpdate: Array<{ channel: string; startedAtIso: string; patch: Partial<StreamerSessionRow> }> = [];
+
+      for (const s of streams) {
+        const channel = String(s.channel || "").toLowerCase();
+        if (!/^[a-z0-9_]{1,64}$/.test(channel)) continue;
+        const startedAtIso = safeToIso(String(s.startedAt || ""));
+        if (!startedAtIso) continue;
+
+        const key = `${channel}|${startedAtIso}`;
+        const existingRow = byKey.get(key);
+        const displayName = String(s.displayName || channel);
+        const profileImageUrl = String(s.profileImageUrl || "");
+        const viewerCount = Number(s.viewerCount || 0);
+        if (!Number.isFinite(viewerCount)) continue;
+
+        if (!existingRow) {
+          toInsert.push({
+            channel,
+            started_at: startedAtIso,
+            display_name: displayName,
+            profile_image_url: profileImageUrl,
+            max_viewers: Math.max(0, Math.floor(viewerCount)),
+            first_seen_at: capturedAtIso,
+            last_seen_at: capturedAtIso,
+          });
+          continue;
+        }
+
+        const nextMax = Math.max(existingRow.max_viewers, Math.floor(viewerCount));
+        const patch: Partial<StreamerSessionRow> = {};
+        if (nextMax !== existingRow.max_viewers) patch.max_viewers = nextMax;
+        if (existingRow.last_seen_at !== capturedAtIso) patch.last_seen_at = capturedAtIso;
+        if (profileImageUrl && existingRow.profile_image_url !== profileImageUrl) patch.profile_image_url = profileImageUrl;
+        if (displayName && existingRow.display_name !== displayName) patch.display_name = displayName;
+        if (Object.keys(patch).length > 0) {
+          toUpdate.push({ channel, startedAtIso, patch });
+        }
+      }
+
+      await insertStreamerSessionRows(toInsert);
+      await Promise.allSettled(
+        toUpdate.map((u) => updateStreamerSessionRow(u.channel, u.startedAtIso, u.patch))
+      );
+    } catch (e) {
+      streamerSessionsError = e instanceof Error ? e.message : "Unknown streamer sessions error";
+      console.error("[snapshots/streams] streamer_sessions failed:", streamerSessionsError);
+    }
+
     return NextResponse.json(
       {
         ok: true,
@@ -376,8 +517,8 @@ export async function GET(request: Request) {
         liveStreams,
         totalViewers,
         warnings:
-          rollupError || streamerDailyError
-            ? { rollups: rollupError, streamerDaily: streamerDailyError }
+          rollupError || streamerDailyError || streamerSessionsError
+            ? { rollups: rollupError, streamerDaily: streamerDailyError, streamerSessions: streamerSessionsError }
             : undefined,
       },
       { headers: { "Cache-Control": "no-store" } }

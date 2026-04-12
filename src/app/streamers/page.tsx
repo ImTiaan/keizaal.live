@@ -12,7 +12,7 @@ type LeaderboardRow = {
   channel: string;
   displayName: string;
   profileImageUrl: string;
-  daysStreamed: number;
+  streams: number;
   maxViewers: number;
 };
 
@@ -211,7 +211,7 @@ export default function StreamersPage() {
                   <tr className="border-b border-zinc-800/50">
                     <th className="text-left font-semibold px-4 py-3 w-12">#</th>
                     <th className="text-left font-semibold px-4 py-3">Streamer</th>
-                    <th className="text-right font-semibold px-4 py-3 w-28">Days</th>
+                    <th className="text-right font-semibold px-4 py-3 w-28">Streams</th>
                     <th className="text-right font-semibold px-4 py-3 w-32">Max Viewers</th>
                   </tr>
                 </thead>
@@ -249,7 +249,7 @@ export default function StreamersPage() {
                     <tr className="border-b border-zinc-800/50">
                       <th className="text-left font-semibold px-4 py-3 w-12">#</th>
                       <th className="text-left font-semibold px-4 py-3">Streamer</th>
-                      <th className="text-right font-semibold px-4 py-3 w-28">Days</th>
+                      <th className="text-right font-semibold px-4 py-3 w-28">Streams</th>
                       <th className="text-right font-semibold px-4 py-3 w-32">Max Viewers</th>
                     </tr>
                   </thead>
@@ -295,7 +295,7 @@ export default function StreamersPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-zinc-200">{row.daysStreamed}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-zinc-200">{row.streams}</td>
                         <td className="px-4 py-3 text-right tabular-nums text-zinc-200">{row.maxViewers.toLocaleString()}</td>
                       </tr>
                     ))}
