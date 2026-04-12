@@ -312,7 +312,7 @@ function Chart({
 }
 
 export default function StatsPage() {
-  const [range, setRange] = useState<RangeKey>("7d");
+  const [range, setRange] = useState<RangeKey>("24h");
   const [smoothingEnabled] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);

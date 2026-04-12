@@ -321,7 +321,7 @@ export default function Home() {
         {featured?.cards && featured.cards.length > 0 && data?.streams && data.streams.length > 0 ? (
           <section className="mb-10">
             <div className="flex items-center justify-between gap-3 mb-4">
-              <h2 className="text-lg font-bold tracking-wider text-zinc-200 uppercase">Growing Fast</h2>
+              <h2 className="text-lg font-bold tracking-wider text-zinc-200 uppercase">Growing</h2>
               <div className="text-xs text-zinc-500">{featured.generatedAt ? `Updated ${formatTimeAgo(featured.generatedAt)}` : null}</div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

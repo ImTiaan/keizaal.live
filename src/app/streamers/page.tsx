@@ -39,6 +39,8 @@ export default function StreamersPage() {
   const [switching, setSwitching] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
+  const [sortKey, setSortKey] = useState<"maxViewers" | "streams">("maxViewers");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
@@ -73,9 +75,36 @@ export default function StreamersPage() {
     setPage(1);
   }, [range]);
 
+  const sortedLeaderboard = useMemo(() => {
+    const rows = [...leaderboard];
+    const dir = sortDir === "desc" ? -1 : 1;
+
+    rows.sort((a, b) => {
+      if (sortKey === "maxViewers") {
+        const primary = (a.maxViewers - b.maxViewers) * dir;
+        if (primary !== 0) return primary;
+        const secondary = (a.streams - b.streams) * dir;
+        if (secondary !== 0) return secondary;
+      } else {
+        const primary = (a.streams - b.streams) * dir;
+        if (primary !== 0) return primary;
+        const secondary = (a.maxViewers - b.maxViewers) * dir;
+        if (secondary !== 0) return secondary;
+      }
+
+      const ac = a.channel.toLowerCase();
+      const bc = b.channel.toLowerCase();
+      if (ac < bc) return -1;
+      if (ac > bc) return 1;
+      return 0;
+    });
+
+    return rows;
+  }, [leaderboard, sortDir, sortKey]);
+
   const totalPages = useMemo(() => {
-    return Math.max(1, Math.ceil(leaderboard.length / pageSize));
-  }, [leaderboard.length]);
+    return Math.max(1, Math.ceil(sortedLeaderboard.length / pageSize));
+  }, [sortedLeaderboard.length]);
 
   useEffect(() => {
     setPage((p) => Math.min(Math.max(1, p), totalPages));
@@ -83,8 +112,25 @@ export default function StreamersPage() {
 
   const pagedLeaderboard = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return leaderboard.slice(start, start + pageSize);
-  }, [leaderboard, page]);
+    return sortedLeaderboard.slice(start, start + pageSize);
+  }, [page, sortedLeaderboard]);
+
+  const sortLabel = useMemo(() => {
+    const isStreams = sortKey === "streams";
+    const arrow = sortDir === "desc" ? "↓" : "↑";
+    return {
+      streams: isStreams ? arrow : "",
+      maxViewers: !isStreams ? arrow : "",
+    };
+  }, [sortDir, sortKey]);
+
+  const setSort = (nextKey: "streams" | "maxViewers") => {
+    const nextDir = nextKey === sortKey ? (sortDir === "desc" ? "asc" : "desc") : "desc";
+    setPage(1);
+    setSortKey(nextKey);
+    setSortDir(nextDir);
+    track("Streamers_Sort_Change", { sort: nextKey, dir: nextDir, range });
+  };
 
   const subtitle = useMemo(() => {
     if (loading) return "";
@@ -249,8 +295,24 @@ export default function StreamersPage() {
                     <tr className="border-b border-zinc-800/50">
                       <th className="text-left font-semibold px-4 py-3 w-12">#</th>
                       <th className="text-left font-semibold px-4 py-3">Streamer</th>
-                      <th className="text-right font-semibold px-4 py-3 w-28">Streams</th>
-                      <th className="text-right font-semibold px-4 py-3 w-32">Max Viewers</th>
+                      <th className="text-right font-semibold px-4 py-3 w-28">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2 hover:text-zinc-300 transition-colors"
+                          onClick={() => setSort("streams")}
+                        >
+                          Streams <span className="text-zinc-600">{sortLabel.streams}</span>
+                        </button>
+                      </th>
+                      <th className="text-right font-semibold px-4 py-3 w-32">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2 hover:text-zinc-300 transition-colors"
+                          onClick={() => setSort("maxViewers")}
+                        >
+                          Max Viewers <span className="text-zinc-600">{sortLabel.maxViewers}</span>
+                        </button>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
