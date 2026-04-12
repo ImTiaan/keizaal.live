@@ -3,6 +3,10 @@ import { getStreamsPayloadOrStale, type StreamsPayload } from "../../streams/rou
 
 export const revalidate = 0;
 
+const INDEXNOW_HOST = "keizaal.live";
+const INDEXNOW_KEY = process.env.INDEXNOW_KEY || "1b462535014948c49913fcb8ba1431bf";
+const INDEXNOW_KEY_LOCATION = `https://${INDEXNOW_HOST}/${INDEXNOW_KEY}.txt`;
+
 type Snapshot5mRow = {
   captured_at: string;
   live_streams: number;
@@ -99,6 +103,37 @@ async function supabaseFetch(path: string, init?: RequestInit) {
     cache: "no-store",
   });
   return res;
+}
+
+async function notifyIndexNow(urls: string[]) {
+  const unique = Array.from(
+    new Set(
+      urls
+        .map((u) => u.trim())
+        .filter((u) => u.startsWith(`https://${INDEXNOW_HOST}/`))
+    )
+  ).slice(0, 1000);
+
+  if (unique.length === 0) return;
+
+  const res = await fetch("https://api.indexnow.org/indexnow", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      host: INDEXNOW_HOST,
+      key: INDEXNOW_KEY,
+      keyLocation: INDEXNOW_KEY_LOCATION,
+      urlList: unique,
+    }),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`IndexNow failed (${res.status}): ${text}`);
+  }
 }
 
 async function getExistingSnapshot(capturedAtIso: string) {
@@ -486,6 +521,7 @@ export async function GET(request: Request) {
     }
 
     let streamerSessionsError: string | null = null;
+    let indexNowError: string | null = null;
     try {
       const streams = Array.isArray((streamsJson as StreamsPayload).streams) ? streamsJson.streams : [];
       const sessionItems = streams
@@ -549,6 +585,23 @@ export async function GET(request: Request) {
       }
 
       await insertStreamerSessionRows(toInsert);
+
+      const newSessionChannels = Array.from(new Set(toInsert.map((r) => r.channel))).filter((c) =>
+        /^[a-z0-9_]{1,64}$/.test(c)
+      );
+      if (newSessionChannels.length > 0) {
+        try {
+          await notifyIndexNow([
+            `https://${INDEXNOW_HOST}/`,
+            `https://${INDEXNOW_HOST}/streamers`,
+            ...newSessionChannels.map((c) => `https://${INDEXNOW_HOST}/streamers/${c}`),
+          ]);
+        } catch (e) {
+          indexNowError = e instanceof Error ? e.message : "Unknown IndexNow error";
+          console.error("[snapshots/streams] indexnow failed:", indexNowError);
+        }
+      }
+
       await Promise.allSettled(
         toUpdate.map((u) => updateStreamerSessionRow(u.channel, u.startedAtIso, u.patch))
       );
@@ -565,12 +618,13 @@ export async function GET(request: Request) {
         liveStreams,
         totalViewers,
         warnings:
-          rollupError || presenceError || streamerDailyError || streamerSessionsError
+          rollupError || presenceError || streamerDailyError || streamerSessionsError || indexNowError
             ? {
                 rollups: rollupError,
                 presence: presenceError,
                 streamerDaily: streamerDailyError,
                 streamerSessions: streamerSessionsError,
+                indexNow: indexNowError,
               }
             : undefined,
       },
