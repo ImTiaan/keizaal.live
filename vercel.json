@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/snapshots/streams",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/20 * * * *"
     }
   ]
 }
