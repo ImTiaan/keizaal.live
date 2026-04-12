@@ -128,10 +128,56 @@ export default function StreamerProfilePage() {
   }, [channel]);
 
   const twitchUrl = useMemo(() => `https://twitch.tv/${channel}`, [channel]);
-  const presencePath = useMemo(() => {
+  const presenceChart = useMemo(() => {
     const pts = data?.presence24h || [];
-    if (pts.length < 2) return "";
-    return buildPath(pts, 860, 160, 16);
+    if (pts.length < 2) return null;
+
+    const w = 860;
+    const h = 160;
+    const pad = 16;
+    const values = pts.map((p) => Number(p.v)).filter((v) => Number.isFinite(v));
+    const maxV = Math.max(1, ...values);
+    const minV = Math.min(0, ...values);
+    const x0 = pad;
+    const x1 = w - pad;
+    const y0 = pad;
+    const y1 = h - pad;
+
+    const xAt = (idx: number) => x0 + (idx / (pts.length - 1)) * (x1 - x0);
+    const yAt = (v: number) => {
+      const t = (v - minV) / (maxV - minV || 1);
+      return y1 - t * (y1 - y0);
+    };
+
+    const yTicks = [minV, (minV + maxV) / 2, maxV].map((v) => {
+      const rounded = v >= 100 ? Math.round(v) : Math.round(v * 10) / 10;
+      return { value: rounded, y: yAt(rounded) };
+    });
+
+    const t0 = new Date(pts[0].t).getTime();
+    const t1 = new Date(pts[pts.length - 1].t).getTime();
+    const tMid = t0 + (t1 - t0) / 2;
+    const formatX = (ms: number) =>
+      new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+    const xTicks = [
+      { x: x0, label: formatX(t0) },
+      { x: xAt(Math.floor((pts.length - 1) / 2)), label: formatX(tMid) },
+      { x: x1, label: formatX(t1) },
+    ];
+
+    return {
+      w,
+      h,
+      pad,
+      x0,
+      x1,
+      y0,
+      y1,
+      path: buildPath(pts, w, h, pad),
+      xTicks,
+      yTicks,
+    };
   }, [data?.presence24h]);
   const presenceStats = useMemo(() => {
     const pts = data?.presence24h || [];
@@ -339,10 +385,32 @@ export default function StreamerProfilePage() {
             <div className="p-5 animate-pulse">
               <div className="h-[160px] bg-zinc-800 rounded" />
             </div>
-          ) : data?.presence24h?.length ? (
+          ) : data?.presence24h?.length && presenceChart ? (
             <div className="p-5">
               <svg viewBox="0 0 860 160" className="w-full h-[160px]">
-                <path d={presencePath} fill="none" stroke="rgb(34, 197, 94)" strokeWidth="3" />
+                <g>
+                  <line x1={presenceChart.x0} y1={presenceChart.y1} x2={presenceChart.x1} y2={presenceChart.y1} stroke="rgba(255,255,255,0.10)" strokeWidth="1" />
+                  <line x1={presenceChart.x0} y1={presenceChart.y0} x2={presenceChart.x0} y2={presenceChart.y1} stroke="rgba(255,255,255,0.10)" strokeWidth="1" />
+
+                  {presenceChart.yTicks.map((t) => (
+                    <g key={`y-${t.value}`}>
+                      <line x1={presenceChart.x0} y1={t.y} x2={presenceChart.x1} y2={t.y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                      <text x={presenceChart.x0 - 6} y={t.y + 4} textAnchor="end" fontSize="10" fill="rgba(255,255,255,0.45)">
+                        {Number.isFinite(t.value) ? Number(t.value).toLocaleString() : ""}
+                      </text>
+                    </g>
+                  ))}
+
+                  {presenceChart.xTicks.map((t, idx) => (
+                    <g key={`x-${String(idx)}-${t.label}`}>
+                      <line x1={t.x} y1={presenceChart.y1} x2={t.x} y2={presenceChart.y1 + 4} stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+                      <text x={t.x} y={presenceChart.y1 + 14} textAnchor={idx === 0 ? "start" : idx === 2 ? "end" : "middle"} fontSize="10" fill="rgba(255,255,255,0.45)">
+                        {t.label}
+                      </text>
+                    </g>
+                  ))}
+                </g>
+                <path d={presenceChart.path} fill="none" stroke="rgb(34, 197, 94)" strokeWidth="3" />
               </svg>
             </div>
           ) : (
