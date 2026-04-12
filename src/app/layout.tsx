@@ -26,6 +26,11 @@ export const metadata: Metadata = {
     template: "%s | Keizaal Live"
   },
   description: "Discover live streams of The Elder Scrolls V: Skyrim on the Keizaal roleplay server. See who is live, check viewer counts, and jump into the best Skyrim RP action on Twitch.",
+  icons: {
+    icon: [{ url: "/logo.png", type: "image/png" }],
+    shortcut: [{ url: "/logo.png", type: "image/png" }],
+    apple: [{ url: "/logo.png", type: "image/png" }],
+  },
   keywords: [
     "Keizaal", "Keizaal RP", "Skyrim RP", "Skyrim Roleplay", 
     "Keizaal Online", "Elder Scrolls V", "Twitch Directory", 
