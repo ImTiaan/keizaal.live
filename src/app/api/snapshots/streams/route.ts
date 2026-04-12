@@ -114,7 +114,7 @@ async function notifyIndexNow(urls: string[]) {
     )
   ).slice(0, 1000);
 
-  if (unique.length === 0) return;
+  if (unique.length === 0) return 0;
 
   const res = await fetch("https://api.indexnow.org/indexnow", {
     method: "POST",
@@ -134,6 +134,8 @@ async function notifyIndexNow(urls: string[]) {
     const text = await res.text();
     throw new Error(`IndexNow failed (${res.status}): ${text}`);
   }
+
+  return unique.length;
 }
 
 async function getExistingSnapshot(capturedAtIso: string) {
@@ -522,6 +524,7 @@ export async function GET(request: Request) {
 
     let streamerSessionsError: string | null = null;
     let indexNowError: string | null = null;
+    let indexNowSubmitted = 0;
     try {
       const streams = Array.isArray((streamsJson as StreamsPayload).streams) ? streamsJson.streams : [];
       const sessionItems = streams
@@ -591,8 +594,10 @@ export async function GET(request: Request) {
       );
       if (newSessionChannels.length > 0) {
         try {
-          await notifyIndexNow([
+          indexNowSubmitted = await notifyIndexNow([
             `https://${INDEXNOW_HOST}/`,
+            `https://${INDEXNOW_HOST}/clips`,
+            `https://${INDEXNOW_HOST}/stats`,
             `https://${INDEXNOW_HOST}/streamers`,
             ...newSessionChannels.map((c) => `https://${INDEXNOW_HOST}/streamers/${c}`),
           ]);
@@ -617,6 +622,7 @@ export async function GET(request: Request) {
         snapshot: snapshotExists ? "skipped" : "inserted",
         liveStreams,
         totalViewers,
+        indexNow: indexNowSubmitted > 0 ? { submitted: indexNowSubmitted } : undefined,
         warnings:
           rollupError || presenceError || streamerDailyError || streamerSessionsError || indexNowError
             ? {
