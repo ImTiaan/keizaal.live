@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Activity, LineChart as LineChartIcon } from "lucide-react";
+import { track } from "@vercel/analytics";
 
 type RangeKey = "24h" | "7d" | "30d" | "90d" | "365d";
 
@@ -246,7 +247,7 @@ function Chart({
             Avg
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full ${isPeakSameAsAvg ? "bg-zinc-500" : "bg-violet-400"}`} />
+            <span className={`w-2 h-2 rounded-full bg-violet-400 ${isPeakSameAsAvg ? "opacity-50" : ""}`} />
             Peak{isPeakSameAsAvg ? " (same)" : ""}
           </span>
           {valuesPrevAvg ? (
@@ -427,16 +428,32 @@ export default function StatsPage() {
             </h1>
           </div>
           <nav className="flex items-center gap-4 sm:gap-6 text-sm font-medium">
-            <Link href="/" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/"
+              className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "streams" })}
+            >
               Live Streams
             </Link>
-            <Link href="/clips" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/clips"
+              className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "clips" })}
+            >
               Top Clips
             </Link>
-            <Link href="/stats" className="text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/stats"
+              className="text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "stats" })}
+            >
               Stats
             </Link>
-            <Link href="/streamers" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/streamers"
+              className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "streamers" })}
+            >
               Streamers
             </Link>
             <a
@@ -444,6 +461,7 @@ export default function StatsPage() {
               target="_blank"
               rel="noreferrer"
               className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Outbound_Click", { target: "keizaal", page: "stats" })}
             >
               Keizaal Online
             </a>
@@ -452,6 +470,7 @@ export default function StatsPage() {
               target="_blank"
               rel="noreferrer"
               className="text-zinc-400 hover:text-white transition-colors"
+              onClick={() => track("Outbound_Click", { target: "discord", page: "stats" })}
             >
               Official Discord
             </a>
@@ -479,6 +498,7 @@ export default function StatsPage() {
                       onClick={() => {
                         setSwitching(true);
                         setRange(opt.value);
+                        track("Stats_Range_Change", { range: opt.value });
                       }}
                       className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
                         range === opt.value

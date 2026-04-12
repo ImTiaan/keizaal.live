@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Users } from "lucide-react";
+import { track } from "@vercel/analytics";
 
 type RangeKey = "all" | "24h" | "7d" | "30d" | "90d" | "365d";
 
@@ -102,16 +103,32 @@ export default function StreamersPage() {
             </h1>
           </div>
           <nav className="flex items-center gap-4 sm:gap-6 text-sm font-medium">
-            <Link href="/" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/"
+              className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "streams" })}
+            >
               Live Streams
             </Link>
-            <Link href="/clips" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/clips"
+              className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "clips" })}
+            >
               Top Clips
             </Link>
-            <Link href="/stats" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/stats"
+              className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "stats" })}
+            >
               Stats
             </Link>
-            <Link href="/streamers" className="text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/streamers"
+              className="text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "streamers" })}
+            >
               Streamers
             </Link>
             <a
@@ -119,6 +136,7 @@ export default function StreamersPage() {
               target="_blank"
               rel="noreferrer"
               className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Outbound_Click", { target: "keizaal", page: "streamers" })}
             >
               Keizaal Online
             </a>
@@ -127,6 +145,7 @@ export default function StreamersPage() {
               target="_blank"
               rel="noreferrer"
               className="text-zinc-400 hover:text-white transition-colors"
+              onClick={() => track("Outbound_Click", { target: "discord", page: "streamers" })}
             >
               Official Discord
             </a>
@@ -154,6 +173,7 @@ export default function StreamersPage() {
                       onClick={() => {
                         setSwitching(true);
                         setRange(opt.value);
+                        track("Streamers_Range_Change", { range: opt.value });
                       }}
                       className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
                         range === opt.value
@@ -239,7 +259,14 @@ export default function StreamersPage() {
                         <td className="px-4 py-3 text-zinc-500 tabular-nums">{(page - 1) * pageSize + idx + 1}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
-                            <a href={`https://twitch.tv/${row.channel}`} target="_blank" rel="noreferrer">
+                            <a
+                              href={`https://twitch.tv/${row.channel}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={() =>
+                                track("Streamer_Open", { source: "streamers_leaderboard", channel: row.channel, range })
+                              }
+                            >
                               {row.profileImageUrl ? (
                                 <Image
                                   src={row.profileImageUrl}
@@ -258,6 +285,9 @@ export default function StreamersPage() {
                                 target="_blank"
                                 rel="noreferrer"
                                 className="font-semibold text-zinc-200 hover:text-white transition-colors truncate block"
+                                onClick={() =>
+                                  track("Streamer_Open", { source: "streamers_leaderboard", channel: row.channel, range })
+                                }
                               >
                                 {row.displayName}
                               </a>
@@ -279,7 +309,13 @@ export default function StreamersPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    onClick={() =>
+                      setPage((p) => {
+                        const next = Math.max(1, p - 1);
+                        track("Streamers_Page_Change", { page: next, range });
+                        return next;
+                      })
+                    }
                     disabled={page <= 1}
                     className="px-3 py-2 rounded-lg text-sm font-medium transition-colors border bg-zinc-900/40 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700 disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-300"
                   >
@@ -287,7 +323,13 @@ export default function StreamersPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() =>
+                      setPage((p) => {
+                        const next = Math.min(totalPages, p + 1);
+                        track("Streamers_Page_Change", { page: next, range });
+                        return next;
+                      })
+                    }
                     disabled={page >= totalPages}
                     className="px-3 py-2 rounded-lg text-sm font-medium transition-colors border bg-zinc-900/40 border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700 disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:text-zinc-300"
                   >

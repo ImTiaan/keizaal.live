@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { RefreshCw, Users, Radio, Info, ChevronDown, ChevronUp, Play, Pause, Flame, Clock } from "lucide-react";
+import { track } from "@vercel/analytics";
 
 interface Stream {
   platform: string;
@@ -169,16 +170,32 @@ export default function Home() {
             </h1>
           </div>
           <nav className="flex items-center gap-4 sm:gap-6 text-sm font-medium">
-            <Link href="/" className="text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/"
+              className="text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "streams" })}
+            >
               Live Streams
             </Link>
-            <Link href="/clips" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/clips"
+              className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "clips" })}
+            >
               Top Clips
             </Link>
-            <Link href="/stats" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/stats"
+              className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "stats" })}
+            >
               Stats
             </Link>
-            <Link href="/streamers" className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block">
+            <Link
+              href="/streamers"
+              className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Nav_Click", { destination: "streamers" })}
+            >
               Streamers
             </Link>
             <a
@@ -186,6 +203,7 @@ export default function Home() {
               target="_blank"
               rel="noreferrer"
               className="text-zinc-400 hover:text-white transition-colors hidden sm:inline-block"
+              onClick={() => track("Outbound_Click", { target: "keizaal", page: "home" })}
             >
               Keizaal Online
             </a>
@@ -194,6 +212,7 @@ export default function Home() {
               target="_blank"
               rel="noreferrer"
               className="text-zinc-400 hover:text-white transition-colors"
+              onClick={() => track("Outbound_Click", { target: "discord", page: "home" })}
             >
               Official Discord
             </a>
@@ -321,6 +340,14 @@ export default function Home() {
                 target="_blank"
                 rel="noreferrer"
                 className={cardClassName}
+                onClick={() =>
+                  track("Stream_Open", {
+                    source: "live_streams_page",
+                    channel: stream.channel,
+                    rank: isGold ? "gold" : isSilver ? "silver" : isBronze ? "bronze" : "none",
+                    viewers: stream.viewerCount,
+                  })
+                }
               >
                 <div className="relative aspect-video bg-zinc-900">
                   {stream.thumbnailUrl ? (
