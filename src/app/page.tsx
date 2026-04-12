@@ -33,12 +33,13 @@ interface StreamsResponse {
 
 interface FeaturedCard {
   stream: Stream;
-  deltaViewers5m: number;
+  growthPct5m: number;
+  isBreakout: boolean;
 }
 
 interface FeaturedResponse {
   generatedAt: string;
-  title: "Featured" | "Going Viral";
+  title: "Going Viral";
   cards: FeaturedCard[];
   error?: string;
 }
@@ -320,14 +321,15 @@ export default function Home() {
         {featured?.cards && featured.cards.length > 0 && data?.streams && data.streams.length > 0 ? (
           <section className="mb-10">
             <div className="flex items-center justify-between gap-3 mb-4">
-              <h2 className="text-lg font-bold tracking-wider text-zinc-200 uppercase">{featured.title}</h2>
+              <h2 className="text-lg font-bold tracking-wider text-zinc-200 uppercase">Growing Fast</h2>
               <div className="text-xs text-zinc-500">{featured.generatedAt ? `Updated ${formatTimeAgo(featured.generatedAt)}` : null}</div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {featured.cards.slice(0, 3).map((card) => {
                 const stream = card.stream;
-                const delta = Math.max(0, Math.floor(card.deltaViewers5m || 0));
-                const deltaText = delta > 0 ? `+${delta.toLocaleString()} (5m)` : null;
+                const growthPct = Number(card.growthPct5m || 0);
+                const growthFixed = growthPct < 10 ? growthPct.toFixed(1) : growthPct.toFixed(0);
+                const growthText = growthPct > 0 ? `+${growthFixed}% (5m)` : null;
                 return (
                   <a
                     key={`featured-${stream.channel}`}
@@ -340,8 +342,9 @@ export default function Home() {
                         source: "featured_section",
                         channel: stream.channel,
                         viewers: stream.viewerCount,
-                        delta5m: delta,
-                        section: featured.title,
+                        growthPct5m: Number.isFinite(growthPct) ? growthPct : 0,
+                        section: "Going Viral",
+                        isBreakout: Boolean(card.isBreakout),
                       })
                     }
                   >
@@ -355,15 +358,22 @@ export default function Home() {
                           className="object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                       ) : null}
+                      {card.isBreakout ? (
+                        <div className="absolute top-3 right-3">
+                          <span className="bg-black/60 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md">
+                            Breakout
+                          </span>
+                        </div>
+                      ) : null}
                       <div className="absolute top-3 left-3 flex flex-col gap-2 items-start">
                         <span className="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
                           Live
                         </span>
-                        {deltaText ? (
+                        {growthText ? (
                           <span className="bg-keizaal-accent text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
                             <TrendingUp className="w-3 h-3" />
-                            {deltaText}
+                            {growthText}
                           </span>
                         ) : null}
                       </div>
@@ -420,139 +430,145 @@ export default function Home() {
             <RefreshCw className="w-8 h-8 animate-spin text-keizaal-accent" />
           </div>
         ) : data?.streams && data.streams.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-            {data.streams.map((stream) => {
-              const podiumRank = podiumRankByChannel.get(stream.channel.toLowerCase()) || 0;
-              const isGold = podiumRank === 1;
-              const isSilver = podiumRank === 2;
-              const isBronze = podiumRank === 3;
+          <>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h2 className="text-lg font-bold tracking-wider text-zinc-200 uppercase">Live Now</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+              {data.streams.map((stream) => {
+                const podiumRank = podiumRankByChannel.get(stream.channel.toLowerCase()) || 0;
+                const isGold = podiumRank === 1;
+                const isSilver = podiumRank === 2;
+                const isBronze = podiumRank === 3;
 
-              const cardClassName = `group flex flex-col bg-keizaal-card rounded-xl overflow-hidden border transition-all hover:-translate-y-1 hover:shadow-2xl ${
-                isGold
-                  ? "border-amber-500/50 hover:border-amber-500 shadow-amber-500/10"
-                  : isSilver
-                    ? "border-zinc-200/50 hover:border-zinc-200 shadow-zinc-200/10"
-                    : isBronze
-                      ? "border-[#cd7f32]/50 hover:border-[#cd7f32] shadow-[#cd7f32]/10"
-                      : "border-zinc-800/50 hover:border-zinc-700 hover:shadow-keizaal-accent/10"
-              }`;
+                const cardClassName = `group flex flex-col bg-keizaal-card rounded-xl overflow-hidden border transition-all hover:-translate-y-1 hover:shadow-2xl ${
+                  isGold
+                    ? "border-amber-500/50 hover:border-amber-500 shadow-amber-500/10"
+                    : isSilver
+                      ? "border-zinc-200/50 hover:border-zinc-200 shadow-zinc-200/10"
+                      : isBronze
+                        ? "border-[#cd7f32]/50 hover:border-[#cd7f32] shadow-[#cd7f32]/10"
+                        : "border-zinc-800/50 hover:border-zinc-700 hover:shadow-keizaal-accent/10"
+                }`;
 
-              const avatarClassName = `rounded-full ring-2 ${
-                isGold
-                  ? "ring-amber-500"
-                  : isSilver
-                    ? "ring-zinc-200"
-                    : isBronze
-                      ? "ring-[#cd7f32]"
-                      : "ring-zinc-800"
-              }`;
+                const avatarClassName = `rounded-full ring-2 ${
+                  isGold
+                    ? "ring-amber-500"
+                    : isSilver
+                      ? "ring-zinc-200"
+                      : isBronze
+                        ? "ring-[#cd7f32]"
+                        : "ring-zinc-800"
+                }`;
 
-              const avatarPlaceholderClassName = `w-10 h-10 rounded-full ${
-                isGold
-                  ? "bg-amber-500/20 ring-2 ring-amber-500"
-                  : isSilver
-                    ? "bg-zinc-200/10 ring-2 ring-zinc-200"
-                    : isBronze
-                      ? "bg-[#cd7f32]/10 ring-2 ring-[#cd7f32]"
-                      : "bg-zinc-800"
-              }`;
+                const avatarPlaceholderClassName = `w-10 h-10 rounded-full ${
+                  isGold
+                    ? "bg-amber-500/20 ring-2 ring-amber-500"
+                    : isSilver
+                      ? "bg-zinc-200/10 ring-2 ring-zinc-200"
+                      : isBronze
+                        ? "bg-[#cd7f32]/10 ring-2 ring-[#cd7f32]"
+                        : "bg-zinc-800"
+                }`;
 
-              return (
-              <a
-                key={stream.channel}
-                href={stream.url}
-                target="_blank"
-                rel="noreferrer"
-                className={cardClassName}
-                onClick={() =>
-                  track("Stream_Open", {
-                    source: "live_streams_page",
-                    channel: stream.channel,
-                    rank: isGold ? "gold" : isSilver ? "silver" : isBronze ? "bronze" : "none",
-                    viewers: stream.viewerCount,
-                  })
-                }
-              >
-                <div className="relative aspect-video bg-zinc-900">
-                  {stream.thumbnailUrl ? (
-                    <Image
-                      src={withCacheBuster(stream.thumbnailUrl)}
-                      alt={stream.title}
-                      fill
-                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
-                      className="object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                  ) : null}
-                  <div className="absolute top-3 left-3 flex flex-col gap-2 items-start">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
-                        Live
-                      </span>
+                return (
+                  <a
+                    key={stream.channel}
+                    href={stream.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cardClassName}
+                    onClick={() =>
+                      track("Stream_Open", {
+                        source: "live_streams_page",
+                        channel: stream.channel,
+                        rank: isGold ? "gold" : isSilver ? "silver" : isBronze ? "bronze" : "none",
+                        viewers: stream.viewerCount,
+                      })
+                    }
+                  >
+                    <div className="relative aspect-video bg-zinc-900">
+                      {stream.thumbnailUrl ? (
+                        <Image
+                          src={withCacheBuster(stream.thumbnailUrl)}
+                          alt={stream.title}
+                          fill
+                          sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+                          className="object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                      ) : null}
+                      <div className="absolute top-3 left-3 flex flex-col gap-2 items-start">
+                        <div className="flex items-center gap-2">
+                          <span className="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+                            Live
+                          </span>
+                        </div>
+                        {isGold && (
+                          <span className="bg-amber-500 text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
+                            <Flame className="w-3 h-3" />
+                            Top Stream
+                          </span>
+                        )}
+                        {isSilver && (
+                          <span className="bg-zinc-200 text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
+                            <Flame className="w-3 h-3" />
+                            Top Stream
+                          </span>
+                        )}
+                        {isBronze && (
+                          <span className="bg-[#cd7f32] text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
+                            <Flame className="w-3 h-3" />
+                            Top Stream
+                          </span>
+                        )}
+                      </div>
+                      <div className="absolute bottom-3 left-3">
+                        <span className="bg-black/60 backdrop-blur-md text-white text-xs font-semibold px-2 py-1 rounded shadow-md flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5" />
+                          {stream.viewerCount.toLocaleString()}
+                        </span>
+                      </div>
+                      {stream.startedAt ? (
+                        <div className="absolute bottom-3 right-3">
+                          <span className="bg-black/60 backdrop-blur-md text-white text-xs font-semibold px-2 py-1 rounded shadow-md flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5" />
+                            {formatUptime(stream.startedAt)}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
-                    {isGold && (
-                      <span className="bg-amber-500 text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
-                        <Flame className="w-3 h-3" />
-                        Top Stream
-                      </span>
-                    )}
-                    {isSilver && (
-                      <span className="bg-zinc-200 text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
-                        <Flame className="w-3 h-3" />
-                        Top Stream
-                      </span>
-                    )}
-                    {isBronze && (
-                      <span className="bg-[#cd7f32] text-black text-[10px] font-bold px-2 py-1 rounded tracking-wider uppercase shadow-md flex items-center gap-1">
-                        <Flame className="w-3 h-3" />
-                        Top Stream
-                      </span>
-                    )}
-                  </div>
-                  <div className="absolute bottom-3 left-3">
-                    <span className="bg-black/60 backdrop-blur-md text-white text-xs font-semibold px-2 py-1 rounded shadow-md flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5" />
-                      {stream.viewerCount.toLocaleString()}
-                    </span>
-                  </div>
-                  {stream.startedAt ? (
-                    <div className="absolute bottom-3 right-3">
-                      <span className="bg-black/60 backdrop-blur-md text-white text-xs font-semibold px-2 py-1 rounded shadow-md flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5" />
-                        {formatUptime(stream.startedAt)}
-                      </span>
+
+                    <div className="p-4 flex gap-3">
+                      <div className="flex-shrink-0">
+                        {stream.profileImageUrl ? (
+                          <Image
+                            src={stream.profileImageUrl}
+                            alt={stream.displayName}
+                            width={40}
+                            height={40}
+                            className={avatarClassName}
+                          />
+                        ) : (
+                          <div className={avatarPlaceholderClassName}></div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h2 className="font-bold text-white truncate group-hover:text-keizaal-accent transition-colors" title={stream.displayName}>
+                            {stream.displayName}
+                          </h2>
+                        </div>
+                        <p className="text-sm text-zinc-400 line-clamp-2 mt-0.5 leading-snug" title={stream.title}>
+                          {stream.title}
+                        </p>
+                      </div>
                     </div>
-                  ) : null}
-                </div>
-                
-                <div className="p-4 flex gap-3">
-                  <div className="flex-shrink-0">
-                    {stream.profileImageUrl ? (
-                      <Image
-                        src={stream.profileImageUrl}
-                        alt={stream.displayName}
-                        width={40}
-                        height={40}
-                        className={avatarClassName}
-                      />
-                    ) : (
-                      <div className={avatarPlaceholderClassName}></div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <h2 className="font-bold text-white truncate group-hover:text-keizaal-accent transition-colors" title={stream.displayName}>
-                        {stream.displayName}
-                      </h2>
-                    </div>
-                    <p className="text-sm text-zinc-400 line-clamp-2 mt-0.5 leading-snug" title={stream.title}>
-                      {stream.title}
-                    </p>
-                  </div>
-                </div>
-              </a>
-            )})}
-          </div>
+                  </a>
+                );
+              })}
+            </div>
+          </>
         ) : (
           <div className="flex-grow flex flex-col items-center justify-center py-20 text-center">
             <div className="w-16 h-16 bg-zinc-800/50 rounded-full flex items-center justify-center mb-4">

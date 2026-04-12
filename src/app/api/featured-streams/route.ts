@@ -15,12 +15,13 @@ type SupabasePresenceRow = {
 
 type FeaturedCard = {
   stream: StreamItem;
-  deltaViewers5m: number;
+  growthPct5m: number;
+  isBreakout: boolean;
 };
 
 type FeaturedResponse = {
   generatedAt: string;
-  title: "Featured" | "Going Viral";
+  title: "Going Viral";
   cards: FeaturedCard[];
 };
 
@@ -62,29 +63,32 @@ function unique<T>(items: T[]) {
 
 function chooseCards(params: {
   streams: StreamItem[];
-  deltaByChannel: Map<string, number>;
+  growthPctByChannel: Map<string, number>;
 }) {
-  const { streams, deltaByChannel } = params;
+  const { streams, growthPctByChannel } = params;
   const teewee = streams.find((s) => s.channel.toLowerCase() === "its_teewee") || null;
   const isTeeweeLive = Boolean(teewee);
+  const breakoutViewerCeiling = 150;
 
-  const deltas = streams
+  const growers = streams
     .map((s) => {
       const ch = s.channel.toLowerCase();
-      return { stream: s, delta: deltaByChannel.get(ch) ?? 0 };
+      return { stream: s, growthPct: growthPctByChannel.get(ch) ?? 0 };
     })
-    .sort((a, b) => b.delta - a.delta);
+    .sort((a, b) => b.growthPct - a.growthPct);
 
   const byViewers = [...streams].sort((a, b) => b.viewerCount - a.viewerCount);
 
-  const takeTop = (count: number, excludeChannels: Set<string>) => {
+  const takeTopGrowers = (count: number, excludeChannels: Set<string>) => {
     const picked: FeaturedCard[] = [];
-    for (const candidate of deltas) {
+    for (const candidate of growers) {
       if (picked.length >= count) break;
       const ch = candidate.stream.channel.toLowerCase();
       if (excludeChannels.has(ch)) continue;
       excludeChannels.add(ch);
-      picked.push({ stream: candidate.stream, deltaViewers5m: candidate.delta });
+      if (candidate.growthPct > 0) {
+        picked.push({ stream: candidate.stream, growthPct5m: candidate.growthPct, isBreakout: false });
+      }
     }
     if (picked.length < count) {
       for (const s of byViewers) {
@@ -92,24 +96,48 @@ function chooseCards(params: {
         const ch = s.channel.toLowerCase();
         if (excludeChannels.has(ch)) continue;
         excludeChannels.add(ch);
-        picked.push({ stream: s, deltaViewers5m: deltaByChannel.get(ch) ?? 0 });
+        picked.push({ stream: s, growthPct5m: growthPctByChannel.get(ch) ?? 0, isBreakout: false });
       }
     }
     return picked;
   };
 
-  if (isTeeweeLive && teewee) {
-    const exclude = new Set<string>(["its_teewee"]);
-    const topGrowers = takeTop(2, exclude);
-    const teeweeCard: FeaturedCard = {
-      stream: teewee,
-      deltaViewers5m: deltaByChannel.get("its_teewee") ?? 0,
-    };
-    return { title: "Featured" as const, cards: [topGrowers[0], teeweeCard, topGrowers[1]].filter(Boolean) };
-  }
+  const breakoutCard: FeaturedCard | null = (() => {
+    if (isTeeweeLive && teewee) {
+      return {
+        stream: teewee,
+        growthPct5m: growthPctByChannel.get("its_teewee") ?? 0,
+        isBreakout: true,
+      };
+    }
+
+    const smallGrowers = growers.filter(
+      (g) => g.stream.channel.toLowerCase() !== "its_teewee" && g.stream.viewerCount <= breakoutViewerCeiling
+    );
+    const bestSmall = smallGrowers.find((g) => g.growthPct > 0) || null;
+    if (bestSmall) {
+      return { stream: bestSmall.stream, growthPct5m: bestSmall.growthPct, isBreakout: true };
+    }
+
+    const fallbackSmall =
+      byViewers.find(
+        (s) => s.channel.toLowerCase() !== "its_teewee" && s.viewerCount <= breakoutViewerCeiling
+      ) || null;
+    if (fallbackSmall) {
+      return { stream: fallbackSmall, growthPct5m: growthPctByChannel.get(fallbackSmall.channel.toLowerCase()) ?? 0, isBreakout: true };
+    }
+
+    const fallbackAny = growers[0]?.stream || byViewers[0] || null;
+    if (!fallbackAny) return null;
+    return { stream: fallbackAny, growthPct5m: growthPctByChannel.get(fallbackAny.channel.toLowerCase()) ?? 0, isBreakout: true };
+  })();
 
   const exclude = new Set<string>();
-  return { title: "Going Viral" as const, cards: takeTop(3, exclude) };
+  if (breakoutCard) exclude.add(breakoutCard.stream.channel.toLowerCase());
+
+  const topGrowers = takeTopGrowers(2, exclude);
+  const cards = [breakoutCard, topGrowers[0], topGrowers[1]].filter(Boolean) as FeaturedCard[];
+  return { title: "Going Viral" as const, cards };
 }
 
 export async function GET() {
@@ -123,7 +151,7 @@ export async function GET() {
         .filter((c): c is string => Boolean(c))
     );
 
-    const deltaByChannel = new Map<string, number>();
+    const growthPctByChannel = new Map<string, number>();
 
     if (channels.length > 0 && getSupabaseUrl() && process.env.SUPABASE_SERVICE_ROLE_KEY) {
       const snapRes = await supabaseFetch(
@@ -163,22 +191,28 @@ export async function GET() {
               byChannel.set(ch, list);
             }
 
+            const baseline = 5;
             for (const ch of channels) {
               const list = (byChannel.get(ch) || []).sort(
                 (a, b) => Date.parse(b.captured_at) - Date.parse(a.captured_at)
               );
               const v1 = list.find((r) => new Date(r.captured_at).toISOString() === latest)?.viewer_count ?? null;
               const v0 = list.find((r) => new Date(r.captured_at).toISOString() === previous)?.viewer_count ?? null;
-              const current = streams.find((s) => s.channel.toLowerCase() === ch)?.viewerCount ?? 0;
-              const delta = Math.max(0, Math.floor((v1 ?? current) - (v0 ?? 0)));
-              deltaByChannel.set(ch, delta);
+              if (v1 === null || v0 === null) {
+                growthPctByChannel.set(ch, 0);
+                continue;
+              }
+              const prev = Math.max(0, Math.floor(Number(v0) || 0));
+              const curr = Math.max(0, Math.floor(Number(v1) || 0));
+              const pct = ((curr - prev) / Math.max(prev, baseline)) * 100;
+              growthPctByChannel.set(ch, Math.max(0, pct));
             }
           }
         }
       }
     }
 
-    const chosen = chooseCards({ streams, deltaByChannel });
+    const chosen = chooseCards({ streams, growthPctByChannel });
     const responseBody: FeaturedResponse = {
       generatedAt: new Date().toISOString(),
       title: chosen.title,
