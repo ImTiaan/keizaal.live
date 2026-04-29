@@ -295,6 +295,7 @@ export default function StreamerProfilePage() {
                 width={64}
                 height={64}
                 className="rounded-full object-cover bg-zinc-800"
+                unoptimized
               />
             ) : (
               <div className="w-16 h-16 rounded-full bg-zinc-800" />

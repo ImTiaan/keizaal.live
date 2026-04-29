@@ -72,6 +72,29 @@ export default function TopClipsPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [base30d, setBase30d] = useState<ClipsResponse | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [thumbRetriesByClipId, setThumbRetriesByClipId] = useState<Record<string, number>>({});
+  const [avatarRetriesByClipId, setAvatarRetriesByClipId] = useState<Record<string, number>>({});
+
+  const bumpThumbRetry = (clipId: string) => {
+    setThumbRetriesByClipId((prev) => {
+      const current = prev[clipId] ?? 0;
+      if (current >= 2) return prev;
+      return { ...prev, [clipId]: current + 1 };
+    });
+  };
+
+  const bumpAvatarRetry = (clipId: string) => {
+    setAvatarRetriesByClipId((prev) => {
+      const current = prev[clipId] ?? 0;
+      if (current >= 2) return prev;
+      return { ...prev, [clipId]: current + 1 };
+    });
+  };
+
+  const withRetry = (url: string, retry: number) => {
+    if (retry <= 0) return url;
+    return url.includes("?") ? `${url}&r=${retry}` : `${url}?r=${retry}`;
+  };
 
   const fetchClips = useCallback(
     async (nextRange: typeof range, limit?: number) => {
@@ -306,13 +329,15 @@ export default function TopClipsPage() {
                 }
               >
                 <div className="relative aspect-video bg-zinc-900">
-                  {clip.thumbnailUrl ? (
+                  {clip.thumbnailUrl && (thumbRetriesByClipId[clip.id] ?? 0) < 2 ? (
                     <Image
-                      src={clip.thumbnailUrl}
+                      src={withRetry(clip.thumbnailUrl, thumbRetriesByClipId[clip.id] ?? 0)}
                       alt={clip.title}
                       fill
                       sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                       className="object-cover group-hover:scale-105 transition-transform duration-500"
+                      unoptimized
+                      onError={() => bumpThumbRetry(clip.id)}
                     />
                   ) : null}
 
@@ -339,13 +364,15 @@ export default function TopClipsPage() {
 
                 <div className="p-4 flex flex-col gap-3">
                   <div className="flex items-center gap-3">
-                    {clip.broadcasterProfileImageUrl ? (
+                    {clip.broadcasterProfileImageUrl && (avatarRetriesByClipId[clip.id] ?? 0) < 2 ? (
                       <Image
-                        src={clip.broadcasterProfileImageUrl}
+                        src={withRetry(clip.broadcasterProfileImageUrl, avatarRetriesByClipId[clip.id] ?? 0)}
                         alt={clip.broadcasterName}
                         width={44}
                         height={44}
                         className="rounded-full ring-2 ring-zinc-800"
+                        unoptimized
+                        onError={() => bumpAvatarRetry(clip.id)}
                       />
                     ) : (
                       <div className="w-11 h-11 rounded-full bg-zinc-800" />

@@ -334,6 +334,7 @@ export default function StreamersPage() {
                                   width={28}
                                   height={28}
                                   className="rounded-full object-cover bg-zinc-800"
+                                  unoptimized
                                 />
                               ) : (
                                 <div className="w-7 h-7 rounded-full bg-zinc-800" />

@@ -422,7 +422,13 @@ export default function StatsPage() {
       <header className="border-b border-zinc-800 bg-keizaal-bg/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Image src="/logo.png" alt="Keizaal Logo" width={32} height={32} className="object-contain" />
+            <Image 
+              src="/logo.png" 
+              alt="Keizaal Logo" 
+              width={32} 
+              height={32} 
+              className="object-contain"
+            />
             <h1 className="text-2xl font-bold tracking-widest text-white font-[family-name:var(--font-cinzel)] pt-1">
               KEIZAAL <span className="text-keizaal-accent">LIVE</span>
             </h1>

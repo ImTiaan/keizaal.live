@@ -55,6 +55,7 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [imageBuster, setImageBuster] = useState(() => Date.now());
+  const [thumbRetriesByChannel, setThumbRetriesByChannel] = useState<Record<string, number>>({});
 
   const lastGoodDataRef = useRef<StreamsResponse | null>(null);
   const fetchStreamsRef = useRef<(isRefresh?: boolean) => Promise<void>>(async () => {});
@@ -93,6 +94,23 @@ export default function Home() {
     return url.includes("?") ? `${url}&t=${cacheBuster}` : `${url}?t=${cacheBuster}`;
   };
 
+  const bumpThumbRetry = (channel: string) => {
+    const key = channel.toLowerCase();
+    setThumbRetriesByChannel((prev) => {
+      const current = prev[key] ?? 0;
+      if (current >= 2) return prev;
+      return { ...prev, [key]: current + 1 };
+    });
+  };
+
+  const getThumbSrc = (channel: string, url: string) => {
+    const key = channel.toLowerCase();
+    const retry = thumbRetriesByChannel[key] ?? 0;
+    const base = withCacheBuster(url);
+    if (retry <= 0) return base;
+    return base.includes("?") ? `${base}&r=${retry}` : `${base}?r=${retry}`;
+  };
+
   const podiumRankByChannel = useMemo(() => {
     const rankMap = new Map<string, 1 | 2 | 3>();
     if (!data?.streams || data.streams.length === 0) return rankMap;
@@ -110,23 +128,35 @@ export default function Home() {
     if (isRefresh) setRefreshing(true);
     setErrorMessage(null);
     try {
-      const [streamsRes, featuredRes] = await Promise.all([
-        fetch("/api/streams", { cache: "no-store" }),
-        fetch("/api/featured-streams", { cache: "no-store" }),
-      ]);
+      const fetchPair = async (suffix = "") => {
+        const [streamsRes, featuredRes] = await Promise.all([
+          fetch(`/api/streams${suffix}`, { cache: "no-store" }),
+          fetch(`/api/featured-streams${suffix}`, { cache: "no-store" }),
+        ]);
 
-      const streamsJson = (await streamsRes.json()) as StreamsResponse;
-      if (!streamsRes.ok) throw new Error(streamsJson.error || "Failed to fetch");
+        const streamsJson = (await streamsRes.json()) as StreamsResponse;
+        if (!streamsRes.ok) throw new Error(streamsJson.error || "Failed to fetch");
 
-      try {
-        const featuredJson = (await featuredRes.json()) as FeaturedResponse;
-        if (featuredRes.ok && Array.isArray(featuredJson.cards)) {
-          setFeatured(featuredJson);
-        } else {
-          setFeatured(null);
+        let featuredJson: FeaturedResponse | null = null;
+        try {
+          const parsed = (await featuredRes.json()) as FeaturedResponse;
+          if (featuredRes.ok && Array.isArray(parsed.cards)) {
+            featuredJson = parsed;
+          }
+        } catch {
+          featuredJson = null;
         }
-      } catch {
-        setFeatured(null);
+
+        return { streamsJson, featuredJson };
+      };
+
+      let { streamsJson, featuredJson } = await fetchPair();
+
+      const generatedAtMs = Date.parse(String(streamsJson.generatedAt || ""));
+      const ageMs = Number.isFinite(generatedAtMs) ? Date.now() - generatedAtMs : Number.POSITIVE_INFINITY;
+      if (ageMs > 2 * 60 * 1000) {
+        const bust = `?t=${Date.now()}`;
+        ({ streamsJson, featuredJson } = await fetchPair(bust));
       }
 
       const nextData = streamsJson as StreamsResponse;
@@ -135,6 +165,8 @@ export default function Home() {
       lastGoodDataRef.current = nextData;
       setSecondsUntilRefresh(60);
       setImageBuster(Date.now());
+
+      setFeatured(featuredJson);
 
       if (nextData.stats) {
         const viewers = formatCompactViewers(nextData.stats.totalViewers);
@@ -349,13 +381,15 @@ export default function Home() {
                     }
                   >
                     <div className="relative aspect-video bg-zinc-900">
-                      {stream.thumbnailUrl ? (
+                      {stream.thumbnailUrl && (thumbRetriesByChannel[stream.channel.toLowerCase()] ?? 0) < 2 ? (
                         <Image
-                          src={withCacheBuster(stream.thumbnailUrl)}
+                          src={getThumbSrc(stream.channel, stream.thumbnailUrl)}
                           alt={stream.title}
                           fill
                           sizes="(min-width: 1024px) 33vw, 100vw"
                           className="object-cover group-hover:scale-105 transition-transform duration-500"
+                          unoptimized
+                          onError={() => bumpThumbRetry(stream.channel)}
                         />
                       ) : null}
                       {card.isBreakout ? (
@@ -401,6 +435,7 @@ export default function Home() {
                             width={40}
                             height={40}
                             className="rounded-full ring-2 ring-zinc-800"
+                            unoptimized
                           />
                         ) : (
                           <div className="w-10 h-10 rounded-full bg-zinc-800" />
@@ -488,13 +523,15 @@ export default function Home() {
                     }
                   >
                     <div className="relative aspect-video bg-zinc-900">
-                      {stream.thumbnailUrl ? (
+                      {stream.thumbnailUrl && (thumbRetriesByChannel[stream.channel.toLowerCase()] ?? 0) < 2 ? (
                         <Image
-                          src={withCacheBuster(stream.thumbnailUrl)}
+                          src={getThumbSrc(stream.channel, stream.thumbnailUrl)}
                           alt={stream.title}
                           fill
                           sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                           className="object-cover group-hover:scale-105 transition-transform duration-500"
+                          unoptimized
+                          onError={() => bumpThumbRetry(stream.channel)}
                         />
                       ) : null}
                       <div className="absolute top-3 left-3 flex flex-col gap-2 items-start">
@@ -548,6 +585,7 @@ export default function Home() {
                             width={40}
                             height={40}
                             className={avatarClassName}
+                            unoptimized
                           />
                         ) : (
                           <div className={avatarPlaceholderClassName}></div>
