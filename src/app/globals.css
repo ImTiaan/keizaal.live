@@ -14,3 +14,76 @@ body {
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
 }
+
+.alchemy-book-sheet {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+.alchemy-book-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+}
+
+.alchemy-book-back {
+  transform: rotateY(180deg);
+}
+
+.alchemy-book-sheet.is-turning {
+  transition: transform 520ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.alchemy-book-sheet.turn-next {
+  transform-origin: left center;
+  transform: rotateY(-180deg);
+}
+
+.alchemy-book-sheet.turn-prev {
+  transform-origin: right center;
+  transform: rotateY(180deg);
+}
+
+.alchemy-book-content {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+  line-height: 1.65;
+  font-size: 16px;
+}
+
+.alchemy-book-content h1 {
+  font-family: var(--font-cinzel), ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  font-size: 30px;
+  line-height: 1.15;
+  margin: 0 0 14px;
+}
+
+.alchemy-book-content h2 {
+  font-family: var(--font-cinzel), ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  font-size: 20px;
+  line-height: 1.25;
+  margin: 18px 0 10px;
+}
+
+.alchemy-book-content p {
+  margin: 0 0 12px;
+}
+
+.alchemy-book-content ul,
+.alchemy-book-content ol {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.alchemy-book-content li {
+  margin: 4px 0;
+}
+
+.alchemy-book-content code {
+  background: rgba(0, 0, 0, 0.08);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.95em;
+}
