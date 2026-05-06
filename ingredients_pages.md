@@ -19,6 +19,7 @@ Here are all ingredients from the compendium:
 17. Juniper Berries
 18. Lavender
 19. Moon Sugar
+20. Nightshade
 21. Petty Soul Gem
 22. Purple Mountain Flower
 23. Red Mountain Flower
