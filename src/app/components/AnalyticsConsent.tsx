@@ -46,6 +46,11 @@ export default function AnalyticsConsent() {
   const showBanner = consent === null;
   const analyticsEnabled = consent === "granted";
 
+  const choose = (value: Exclude<ConsentState, null>) => {
+    writeConsent(value);
+    setConsent(value);
+  };
+
   useEffect(() => {
     if (consent === "granted") {
       updateGtagConsent({
@@ -78,8 +83,8 @@ export default function AnalyticsConsent() {
       ) : null}
 
       {showBanner ? (
-        <div className="fixed inset-x-0 bottom-0 z-[100] p-4">
-          <div className="mx-auto max-w-3xl rounded-xl border border-zinc-800/70 bg-zinc-950/90 backdrop-blur-md px-4 py-3 shadow-2xl">
+        <div className="fixed inset-x-0 bottom-0 z-[2147483647] p-4 pointer-events-auto">
+          <div className="mx-auto max-w-3xl rounded-xl border border-zinc-800/70 bg-zinc-950/90 backdrop-blur-md px-4 py-3 shadow-2xl pointer-events-auto isolate">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-zinc-200">
                 We use analytics to understand where traffic comes from and improve the site. You can accept or decline.
@@ -88,9 +93,15 @@ export default function AnalyticsConsent() {
                 <button
                   type="button"
                   className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm font-medium text-zinc-100 transition-colors"
-                  onClick={() => {
-                    writeConsent("denied");
-                    setConsent("denied");
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    choose("denied");
+                  }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    choose("denied");
                   }}
                 >
                   Decline
@@ -98,9 +109,15 @@ export default function AnalyticsConsent() {
                 <button
                   type="button"
                   className="px-3 py-2 rounded-lg bg-keizaal-accent hover:opacity-90 text-sm font-semibold text-black transition-opacity"
-                  onClick={() => {
-                    writeConsent("granted");
-                    setConsent("granted");
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    choose("granted");
+                  }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    choose("granted");
                   }}
                 >
                   Accept
